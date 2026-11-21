@@ -184,26 +184,12 @@ struct IPASetupHeading: View {
     let subtitle: String
     @Environment(\.ipaAccent) private var accent
     var symbolColor: Color? = nil
-    var symbolBesideTitle = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if symbolBesideTitle {
-                HStack(alignment: .center, spacing: 14) {
-                    icon
-                    Text(title).ipaFont(.largeTitle, weight: .bold)
-                }
-            } else {
-                icon
-                Text(title).ipaFont(.largeTitle, weight: .bold)
-            }
+            Image(systemName: symbol).font(.system(size: 46, weight: .light)).foregroundStyle(symbolColor ?? accent)
+            Text(title).ipaFont(.largeTitle, weight: .bold)
             Text(subtitle).ipaFont(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-    private var icon: some View {
-        Image(systemName: symbol).font(.system(size: 46, weight: .light)).foregroundStyle(symbolColor ?? accent)
-            .accessibilityHidden(true)
     }
 }
 struct IPASetupStep: View {
@@ -366,7 +352,7 @@ struct IPAHowItWorksView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                IPASetupHeading(symbol: "book.closed.fill", title: "Make yourself at home.", subtitle: "Here’s a little help getting comfortable with iPAStore. Come back whenever you need a hand.", symbolColor: .purple, symbolBesideTitle: true)
+                IPASetupHeading(symbol: "book.closed.fill", title: "Make yourself at home.", subtitle: "Here’s a little help getting comfortable with iPAStore. Come back whenever you need a hand.", symbolColor: .purple)
                 guide("Your apps, your choice", symbol: "square.grid.2x2.fill") {
                     Text("Free keeps your apps together inside iPAStore. Certificate uses your own signing files. You can change your choice in Settings without deleting your apps.")
                     Text("With a .p12 alone, compatible apps can run inside iPAStore after verification. A matching provisioning profile unlocks separate iPhone installations.")

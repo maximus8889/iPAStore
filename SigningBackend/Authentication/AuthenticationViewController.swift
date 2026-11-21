@@ -39,7 +39,7 @@ final class AuthenticationViewController: UIViewController
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         guard iPAStoreInteractive else { return }
-        navigationItem.title = "Signing Account"
+        navigationItem.title = nil
         navigationItem.largeTitleDisplayMode = .never
         if let bar = navigationController?.navigationBar {
             let appearance = UINavigationBarAppearance()
