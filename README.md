@@ -4,11 +4,11 @@ Your apps. One beautiful home.
 
 [Website](https://maximus8889.github.io/iPAStore/) · [Releases & complete source](https://github.com/maximus8889/iPAStore/releases) · [Community](https://discord.gg/EQ77PXQQgt)
 
-## Build 150
+## Update 160
 
-Accurate download circles, Free setup gates for signing/renewal, automatic signing verification recovery after updates, removable signing files and native app downloads from matching catalog entries. Setup icons, welcome actions and Settings headers are consistent throughout.
+Arrange apps and stores directly from Sort, browse cleaner app details, and check for updates with a larger button.
 
-Includes the catalog/artwork/cache optimizations and clear pinned Search field from build 149. See Release1/BUILD150.md for behavior, renewal limits and verification scope.
+The website is temporarily in maintenance mode. The IPA, complete source, and release notes are hosted on GitHub Releases.
 
 ## Using iPAStore
 
@@ -20,7 +20,7 @@ The website’s setup profile adds an installer shortcut only. It does not sign 
 
 ## Source & build
 
-Download iPAStore-source.tar.gz from the release assets for the host and modified backend source, pinned dependency revisions, retained licenses, build scripts and validation scripts. See README-IPAStore.md, UPSTREAM.md and Release1/BUILD150.md. Keep required extensions and keychain groups when signing the development IPA. No personal signing keys, accounts, profiles, pairing records or device identifiers are included.
+Download iPAStore-source.tar.gz from the release assets for the host and modified backend source, pinned dependency revisions, retained licenses, build scripts and validation scripts. See README-IPAStore.md and UPSTREAM.md in the source archive. Keep required extensions and keychain groups when signing the development IPA. No personal signing keys, accounts, profiles, pairing records or device identifiers are included.
 
 ## Credits
 
