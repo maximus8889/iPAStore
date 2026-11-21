@@ -975,8 +975,7 @@ struct IPAProductView: View {
                     if let version = IPACatalogPresentation.displayValue(app.latestVersion?.version) { information("Version", version) }
                     if let size = app.latestVersion?.size, size > 0 { information("Size", ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
                     information("Category", listing?.category ?? IPACatalogPresentation.category(for: app))
-                    if let version = IPACatalogPresentation.displayValue(app.latestVersion?.version) { values.append(.init(title: "VERSION", value: version, symbol: "app.badge")) }
-        if let minimum = IPACatalogPresentation.displayValue(app.latestVersion?.minOSVersion) { information("Compatibility", "\(minimum)+", symbol: "iphone") }
+                    if let minimum = IPACatalogPresentation.displayValue(app.latestVersion?.minOSVersion) { information("Compatibility", "\(minimum)+", symbol: "iphone") }
                     if let maximum = IPACatalogPresentation.displayValue(app.latestVersion?.maxOSVersion) { information("Supported Through", maximum, symbol: "iphone") }
                     if let listing, !listing.languages.isEmpty { information("Languages", listing.languages.compactMap { Locale.current.localizedString(forLanguageCode: $0) }.joined(separator: ", ")) }
                     if let listingURL = listing?.listing {
@@ -1126,6 +1125,7 @@ struct IPAProductView: View {
         if let age = IPACatalogPresentation.displayValue(listing?.ageRating) { values.append(.init(title: "AGE RATING", value: age, caption: "Years Old")) }
         if let developer = IPACatalogPresentation.displayValue(app.developerName) { values.append(.init(title: "DEVELOPER", value: developer, symbol: "person.crop.square")) }
         if let bytes = app.latestVersion?.size, bytes > 0 { values.append(.init(title: "SIZE", value: ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file), symbol: "arrow.down.circle")) }
+        if let version = IPACatalogPresentation.displayValue(app.latestVersion?.version) { values.append(.init(title: "VERSION", value: version, symbol: "app.badge")) }
         if let minimum = IPACatalogPresentation.displayValue(app.latestVersion?.minOSVersion) { values.append(.init(title: "COMPATIBILITY", value: "\(minimum)+", symbol: "iphone")) }
         return values
     }
