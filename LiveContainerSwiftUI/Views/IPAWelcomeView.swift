@@ -73,7 +73,6 @@ struct IPACertificateSetupView: View {
     @State private var removingCertificate: IPAStandaloneCertificates.Entry?
     @State private var renamingCertificate: IPAStandaloneCertificates.Entry?
     @State private var certificateName = ""
-    @State private var removingProfile = false
 
     var body: some View {
         ScrollView {
@@ -112,15 +111,21 @@ struct IPACertificateSetupView: View {
 
                 if !state.certificates.isEmpty {
                     IPASettingsGroup(title: "Provisioning Profile") {
-                        Button { importingProfile = true } label: {
-                            IPASettingsRow(state.profileSummary == nil ? "Add Profile" : "Replace Profile",
-                                           subtitle: state.profileSummary ?? ".mobileprovision file",
-                                           symbol: "doc.badge.gearshape", color: .teal)
-                        }
                         if state.profileSummary != nil || state.profileProblem != nil {
-                            IPASettingsDivider()
-                            Button { removingProfile = true } label: {
-                                IPASettingsRow("Remove Profile", symbol: "trash", color: .red)
+                            IPASettingsRow("Profile", subtitle: state.profileSummary ?? ".mobileprovision file",
+                                           symbol: "doc.badge.gearshape", color: .teal, showsChevron: false)
+                                .contextMenu {
+                                    Button("Replace Profile", systemImage: "arrow.triangle.2.circlepath") {
+                                        importingProfile = true
+                                    }
+                                    Button("Remove Profile", systemImage: "trash", role: .destructive) {
+                                        state.removeProfile()
+                                    }
+                                }
+                        } else {
+                            Button { importingProfile = true } label: {
+                                IPASettingsRow("Add Profile", subtitle: ".mobileprovision file",
+                                               symbol: "doc.badge.gearshape", color: .teal)
                             }
                         }
                     }.disabled(!state.canManageCertificates)
@@ -151,14 +156,12 @@ struct IPACertificateSetupView: View {
             } catch { state.message = error.localizedDescription }
         }
         .confirmationDialog("Remove saved signing file?", isPresented: Binding(
-            get: { removingCertificate != nil || removingProfile },
-            set: { if !$0 { removingCertificate = nil; removingProfile = false } }
+            get: { removingCertificate != nil },
+            set: { if !$0 { removingCertificate = nil } }
         ), titleVisibility: .visible) {
             Button("Remove", role: .destructive) {
                 if let certificate = removingCertificate { state.removeSavedCertificate(certificate.id) }
-                else if removingProfile { state.removeProfile() }
                 removingCertificate = nil
-                removingProfile = false
             }
         } message: { Text("You can import the signing file again from its original location.") }
         .onAppear { state.reload() }
