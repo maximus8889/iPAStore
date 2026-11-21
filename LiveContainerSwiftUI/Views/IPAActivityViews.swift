@@ -120,11 +120,20 @@ struct IPACollectionSearch: ViewModifier {
     @Binding var query: String
     @Binding var presented: Bool
     var prompt = "Search Apps"
+    var closeButtonCenter: CGFloat?
 
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .top, spacing: 0) {
-            IPACollectionSearchField(query: $query, presented: $presented, prompt: prompt)
-                .padding(.horizontal, 12).frame(maxWidth: 760).frame(maxWidth: .infinity)
+            if presented {
+                GeometryReader { geometry in
+                    let trailing = closeButtonCenter.map { geometry.frame(in: .global).maxX - $0 - 22 } ?? 16
+                    IPACollectionSearchField(query: $query, presented: $presented, prompt: prompt)
+                        .frame(maxWidth: 760)
+                        .frame(maxWidth: .infinity, alignment: closeButtonCenter == nil ? .center : .trailing)
+                        .padding(.leading, 8)
+                        .padding(.trailing, max(0, trailing))
+                }.frame(height: 52).padding(.bottom, 10)
+            }
         }
         .scrollDismissesKeyboard(.interactively)
     }
@@ -230,6 +239,7 @@ struct IPAArrangeLibraries: View {
                         Text(IPAStoreDirectory.title(for: item)).lineLimit(1)
                     }
                     .moveDisabled(items.count < 2)
+                    .listRowBackground(Color.clear)
                 }
                 .onMove { offsets, destination in
                     var reordered = items
@@ -246,10 +256,15 @@ struct IPACloseSearchButton: View {
     var label: LocalizedStringKey = "Close search"
     var size: CGFloat = 44
     let action: () -> Void
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         Button(action: action) {
-            Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.primary)
-                .frame(width: size, height: size).background(IPAStyle.card, in: Circle())
-        }.accessibilityLabel(label)
+            Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
+                .frame(width: size, height: size)
+                .background(scheme == .dark ? IPAStyle.card : Color(white: 0.34), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }

@@ -299,7 +299,6 @@ struct IPAGetButton: View {
 struct IPAAppRow: View {
     let entry: IPAAppEntry
     var onVisit: (() -> Void)? = nil
-    var descriptionLines = 1
     var body: some View {
         HStack(spacing: 12) {
             NavigationLink { IPAProductView(entry: entry) } label: {
@@ -310,7 +309,7 @@ struct IPAAppRow: View {
                         if let subtitle = IPACatalogPresentation.displayValue(entry.app.subtitle)
                             ?? IPACatalogPresentation.displayValue(entry.app.description)
                             ?? IPACatalogPresentation.displayValue(entry.app.developerName) {
-                            Text(subtitle).ipaFont(.subheadline).foregroundStyle(.secondary).lineLimit(descriptionLines)
+                            Text(subtitle).ipaFont(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.contentShape(Rectangle())
@@ -413,6 +412,7 @@ struct IPACategoryView: View {
     @State private var searching = false
     @State private var query = ""
     @State private var order = "publisher"
+    @State private var sortCenter: CGFloat?
     @State private var results: [IPAAppEntry]
     @State private var prepared: [IPASearchDocument]?
     init(category: IPAAppCategory) { self.category = category; _results = State(initialValue: category.apps) }
@@ -420,7 +420,7 @@ struct IPACategoryView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 if results.isEmpty { IPAEmptyState(title: query.isEmpty ? "No Apps Yet" : "No Results", subtitle: query.isEmpty ? "Apps in this category will appear here as the library updates." : "Try another app or developer name.", symbol: query.isEmpty ? "square.stack.3d.up" : "magnifyingglass") }
-                IPAPagedAppRows(entries: results, cards: true).id(query + "|" + order)
+                IPAPagedAppRows(entries: results).id(query + "|" + order)
             }.padding(.horizontal, 20).padding(.bottom, 24).frame(maxWidth: 760).frame(maxWidth: .infinity)
         }.task(id: query + "|" + order) {
             let text = query, sorting = order, snapshot = category.apps, existing = prepared
@@ -436,15 +436,18 @@ struct IPACategoryView: View {
                 let value = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
                 try Task.checkCancellation(); results = value.0; prepared = value.1
             } catch { }
-        }.modifier(IPACollectionSearch(query: $query, presented: $searching))
+        }.modifier(IPACollectionSearch(query: $query, presented: $searching, closeButtonCenter: sortCenter))
             .background(IPAStyle.canvas).navigationTitle(category.name).navigationBarTitleDisplayMode(.inline).ipaNativePage()
             .toolbar { ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Search", systemImage: "magnifyingglass") { searching = true }
                     Picker("Sort", selection: $order) { Text("Library Order").tag("publisher"); Text("Name").tag("name"); Text("Developer").tag("developer") }
                         .pickerStyle(.inline).labelsHidden()
-                } label: { IPACollectionControlIcon(symbol: "line.3.horizontal.decrease") }
-                    .accessibilityLabel("Sort and search apps")
+                } label: {
+                    IPACollectionControlIcon(symbol: "line.3.horizontal.decrease")
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midX } action: { sortCenter = $0 }
+                }
+                .accessibilityLabel("Sort and search apps")
             } }
     }
 }
@@ -873,6 +876,7 @@ struct IPASearchView: View {
 struct IPAProductView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .subheadline) private var minimumFactWidth: CGFloat = 96
     @ScaledMetric(relativeTo: .subheadline) private var factHeight: CGFloat = 84
     let entry: IPAAppEntry
@@ -920,7 +924,7 @@ struct IPAProductView: View {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(app.name).ipaFont(.title2, weight: .bold).lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2).fixedSize(horizontal: false, vertical: true)
                         if let subtitle = app.subtitle ?? app.developerName {
-                            Text(subtitle).ipaFont(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                            Text(subtitle).ipaFont(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                         }
                         Spacer(minLength: 8)
                         productActions
@@ -935,15 +939,23 @@ struct IPAProductView: View {
                     Divider()
                     informationStrip.padding(.vertical, 12)
                 }
-                if !screenshots.isEmpty {
-                    IPAProductScreenshots(urls: Array(screenshots.prefix(12)))
-                        .accessibilityLabel("App screenshots")
-                        .padding(.vertical, 14)
+                if let notes = releaseNotes {
+                    if !facts.isEmpty { Divider() }
+                    whatsNew(notes)
                 }
-                if let description = IPACatalogPresentation.displayValue(app.description) {
+                if !screenshots.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Preview").ipaFont(.title2, weight: .bold).accessibilityAddTraits(.isHeader)
+                        IPAProductScreenshots(urls: Array(screenshots.prefix(12)))
+                            .accessibilityLabel("App screenshots")
+                    }.padding(.vertical, 14)
+                }
+                let description = IPACatalogPresentation.displayValue(app.description)
+                if let description {
                     IPAExpandableText(text: description, lines: 3).padding(.vertical, 14)
                 }
-                NavigationLink { IPAStoreAllAppsView(reference: variant.store, fallback: currentEntry) } label: {
+                if !screenshots.isEmpty || description != nil { Divider() }
+                NavigationLink { IPAStorePage(reference: variant.store) } label: {
                     HStack(spacing: 12) {
                         Image(systemName: IPAStyle.storeSymbol).ipaFont(.title3)
                         VStack(alignment: .leading, spacing: 3) {
@@ -957,16 +969,14 @@ struct IPAProductView: View {
                 if let score = storeRating {
                     ratingsSection(score: score.score, count: score.count)
                 }
-                if let notes = releaseNotes {
-                    whatsNew(notes)
-                }
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Information").ipaFont(.title2, weight: .bold).padding(.bottom, 8)
                     if let developer = IPACatalogPresentation.displayValue(app.developerName) { information("Developer", developer) }
                     if let version = IPACatalogPresentation.displayValue(app.latestVersion?.version) { information("Version", version) }
                     if let size = app.latestVersion?.size, size > 0 { information("Size", ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
                     information("Category", listing?.category ?? IPACatalogPresentation.category(for: app))
-                    if let minimum = IPACatalogPresentation.displayValue(app.latestVersion?.minOSVersion) { information("Compatibility", "\(minimum)+", symbol: "iphone") }
+                    if let version = IPACatalogPresentation.displayValue(app.latestVersion?.version) { values.append(.init(title: "VERSION", value: version, symbol: "app.badge")) }
+        if let minimum = IPACatalogPresentation.displayValue(app.latestVersion?.minOSVersion) { information("Compatibility", "\(minimum)+", symbol: "iphone") }
                     if let maximum = IPACatalogPresentation.displayValue(app.latestVersion?.maxOSVersion) { information("Supported Through", maximum, symbol: "iphone") }
                     if let listing, !listing.languages.isEmpty { information("Languages", listing.languages.compactMap { Locale.current.localizedString(forLanguageCode: $0) }.joined(separator: ", ")) }
                     if let listingURL = listing?.listing {
@@ -983,7 +993,7 @@ struct IPAProductView: View {
                     Label("Additional Runtime Required", systemImage: "cpu").ipaFont(.headline, weight: .semibold)
                     Text("This app needs JIT and a compatible launch setup. Check its publisher’s guide before installing.").ipaFont(.footnote).foregroundStyle(.secondary).padding(.vertical, 8)
                 }
-                if !moreByPublisher.isEmpty { IPACategoryShelf(category: .init(name: "From \(variant.store.name)", apps: moreByPublisher), library: variant.store).padding(.vertical, 20) }
+                if !moreByPublisher.isEmpty { IPACategoryShelf(category: .init(name: "More from \(variant.store.name)", apps: moreByPublisher), library: variant.store).padding(.vertical, 20) }
                 if !recommendations.isEmpty { IPACategoryShelf(category: .init(name: "You Might Also Like", apps: recommendations)).padding(.top, 20).padding(.bottom, 4) }
             }.frame(maxWidth: 720, alignment: .leading).padding(.horizontal, 20).padding(.bottom, 4).frame(maxWidth: .infinity)
 
@@ -1115,7 +1125,6 @@ struct IPAProductView: View {
         }
         if let age = IPACatalogPresentation.displayValue(listing?.ageRating) { values.append(.init(title: "AGE RATING", value: age, caption: "Years Old")) }
         if let developer = IPACatalogPresentation.displayValue(app.developerName) { values.append(.init(title: "DEVELOPER", value: developer, symbol: "person.crop.square")) }
-        if let version = IPACatalogPresentation.displayValue(app.latestVersion?.version) { values.append(.init(title: "VERSION", value: version, symbol: "app.badge")) }
         if let bytes = app.latestVersion?.size, bytes > 0 { values.append(.init(title: "SIZE", value: ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file), symbol: "arrow.down.circle")) }
         if let minimum = IPACatalogPresentation.displayValue(app.latestVersion?.minOSVersion) { values.append(.init(title: "COMPATIBILITY", value: "\(minimum)+", symbol: "iphone")) }
         return values
@@ -1146,6 +1155,13 @@ struct IPAProductView: View {
                         .foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .padding(.horizontal, 6)
                         .frame(width: width, height: factHeight)
+                        .overlay(alignment: .trailing) {
+                            if fact.id != columns.last?.id {
+                                Rectangle().fill(.primary.opacity(0.16))
+                                    .frame(width: 1 / max(1, displayScale), height: factHeight * 0.55)
+                                    .allowsHitTesting(false)
+                            }
+                        }
                         .accessibilityElement(children: .combine)
                     }
                 }
@@ -1676,19 +1692,11 @@ struct IPABundledNotice: View {
 // the visible slice as the reader approaches its end; all results remain reachable.
 struct IPAPagedAppRows: View {
     let entries: [IPAAppEntry]
-    var cards = false
     @State private var count = 100
     var body: some View {
         ForEach(Array(entries.prefix(count))) { entry in
-            if cards {
-                IPAAppRow(entry: entry, descriptionLines: 2)
-                    .padding(.horizontal, 14)
-                    .background(IPAStyle.card, in: RoundedRectangle(cornerRadius: 18))
-                    .padding(.bottom, 8)
-            } else {
-                IPAAppRow(entry: entry)
-                Divider().padding(.leading, 72)
-            }
+            IPAAppRow(entry: entry)
+            Divider().padding(.leading, 72)
         }
         if count < entries.count {
             Color.clear.frame(height: 1).onAppear { count = min(entries.count, count + 100) }

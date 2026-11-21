@@ -100,11 +100,11 @@
       },
       {
         "path": "SigningBackend/Authentication/AuthenticationViewController.swift",
-        "sha256": "319217ef013348ff669ec6e7d56e8b538c9f257bd1e29e2a7c66aa038cd88120"
+        "sha256": "af204e47d6656ac99221ce25a9adfaed79fcaa854887f621616c42ae920ab28a"
       },
       {
         "path": "SigningBackend/Authentication/Authentication.storyboard",
-        "sha256": "34610a80b49bee9aeb4fa024ab8f97a69a62e3f0709bae5d4f09bede5b23d61a"
+        "sha256": "c855ff2c0bcbcf8949e14ea0db548201f919c9f05819ee5e2c65f806b32a13a7"
       },
       {
         "path": "SigningBackend/WidgetAppearance.patch",

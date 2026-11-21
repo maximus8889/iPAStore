@@ -287,7 +287,6 @@ struct IPASuggestionsView: View {
 
 struct IPAStoreAllAppsView: View {
     let reference: IPAStoreReference
-    var fallback: IPAAppEntry? = nil
     @EnvironmentObject private var catalog: AltStoreSourcesViewModel
     @EnvironmentObject private var discovery: IPADiscovery
     @ObservedObject private var libraryIndex = IPALibraryIndex.shared
@@ -300,7 +299,7 @@ struct IPAStoreAllAppsView: View {
             ProgressView("Preparing apps…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 .navigationTitle("All Apps").navigationBarTitleDisplayMode(.inline).ipaNativePage()
         } else {
-            IPACategoryView(category: .init(name: "All Apps", apps: entries.isEmpty ? [fallback].compactMap { $0 } : entries))
+            IPACategoryView(category: .init(name: "All Apps", apps: entries))
                 .id(source?.id)
         }
     }

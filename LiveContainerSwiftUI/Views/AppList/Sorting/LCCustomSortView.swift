@@ -42,6 +42,7 @@ struct LCCustomSortRows: View {
             }
             .padding(.vertical, 4)
             .moveDisabled(apps.count < 2)
+            .listRowBackground(Color.clear)
         }
         .onMove { source, destination in
             var reordered = apps

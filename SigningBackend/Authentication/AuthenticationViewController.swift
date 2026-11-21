@@ -16,6 +16,7 @@ final class AuthenticationViewController: UIViewController
     var completionHandler: (((ALTAccount, ALTAppleAPISession, String)?) -> Void)?
     
     private weak var toastView: ToastView?
+    private var authenticationInProgress = false
     
     @IBOutlet private var appleIDTextField: UITextField!
     @IBOutlet private var passwordTextField: UITextField!
@@ -41,6 +42,7 @@ final class AuthenticationViewController: UIViewController
         guard iPAStoreInteractive else { return }
         navigationItem.title = nil
         navigationItem.largeTitleDisplayMode = .never
+        navigationItem.rightBarButtonItem?.isEnabled = !authenticationInProgress
         if let bar = navigationController?.navigationBar {
             let appearance = UINavigationBarAppearance()
             appearance.configureWithDefaultBackground()
@@ -206,36 +208,46 @@ private extension AuthenticationViewController
 
 private extension AuthenticationViewController
 {
-    @IBAction func authenticate()
-    {
-        guard let (emailAddress, password) = self.validate() else { return }
-        
-        self.appleIDTextField.resignFirstResponder()
-        self.passwordTextField.resignFirstResponder()
-        
-        self.signInButton.isIndicatingActivity = true
-        
-        self.authenticationHandler?(emailAddress, password) { (result) in
-            switch result
-            {
-            case .failure(DeveloperPortalError.userCancelled):
-                debugLog("AuthenticationViewController: Two-factor authentication cancelled by user.")
-                DispatchQueue.main.async {
-                    self.signInButton.isIndicatingActivity = false
-                }
+    @IBAction func authenticate() {
+        guard !authenticationInProgress,
+              let (emailAddress, password) = validate(),
+              let authenticationHandler else { return }
 
-            case .failure(DeveloperPortalError.accountRepairRequired):
-                debugLog("AuthenticationViewController: Account repair cancelled by user.")
-                DispatchQueue.main.async {
-                    self.signInButton.isIndicatingActivity = false
-                }
+        appleIDTextField.resignFirstResponder()
+        passwordTextField.resignFirstResponder()
+        authenticationInProgress = true
+        signInButton.isIndicatingActivity = true
+        if iPAStoreInteractive { navigationItem.rightBarButtonItem?.isEnabled = false }
 
-            case .failure(let error):
-                DispatchQueue.main.async {
+        authenticationHandler(emailAddress, password) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.signInButton.isIndicatingActivity = false
+
+                switch result {
+                case .success((let account, let session)):
+                    UIView.performWithoutAnimation {
+                        let title = NSLocalizedString("Authenticated", comment: "")
+                        self.signInButton.setTitle(title, for: .normal)
+                        self.signInButton.setImage(UIImage(systemName: "checkmark.circle.fill"), for: .normal)
+                        self.signInButton.layoutIfNeeded()
+                    }
+                    self.completionHandler?((account, session, password))
+
+                case .failure(let error):
+                    self.authenticationInProgress = false
+                    if self.iPAStoreInteractive { self.navigationItem.rightBarButtonItem?.isEnabled = true }
+                    if let portal = error as? DeveloperPortalError {
+                        switch portal {
+                        case .userCancelled, .accountRepairRequired: return
+                        default: break
+                        }
+                    }
+
                     let details = IPAAccountSignInFailure(error)
                     let displayError = self.iPAStoreInteractive
-                        ? NSError(domain: "iPAStore.SignIn", code: (error as NSError).code, userInfo: [NSLocalizedDescriptionKey: details.message])
-                            .withLocalizedTitle(details.title)
+                        ? NSError(domain: "iPAStore.SignIn", code: (error as NSError).code,
+                                  userInfo: [NSLocalizedDescriptionKey: details.message]).withLocalizedTitle(details.title)
                         : (error as NSError).withLocalizedTitle(NSLocalizedString("Failed to Sign In", comment: ""))
                     let toast = ToastView(error: displayError)
                     self.toastView?.dismiss()
@@ -245,31 +257,15 @@ private extension AuthenticationViewController
                     toast.textLabel.textColor = textColor
                     toast.detailTextLabel.textColor = textColor
                     self.toastView = toast
-                    self.signInButton.isIndicatingActivity = false
                 }
-                
-            case .success((let account, let session)):
-                DispatchQueue.main.async {
-                    UIView.performWithoutAnimation {
-                        let title = NSLocalizedString("Authenticated", comment: "")
-                        let image = UIImage(systemName: "checkmark.circle.fill")
-                        self.signInButton.setTitle(title, for: .normal)
-                        self.signInButton.setImage(image, for: .normal)
-                        self.signInButton.isIndicatingActivity = false
-                        self.signInButton.layoutIfNeeded()
-                    }
-                }
-                self.completionHandler?((account, session, password))
-            }
-            
-            DispatchQueue.main.async {
-                self.scrollView.setContentOffset(CGPoint(x: 0, y: -self.view.safeAreaInsets.top), animated: true)
+                self.scrollView.setContentOffset(CGPoint(x: 0, y: -self.scrollView.adjustedContentInset.top), animated: true)
             }
         }
     }
-    
+
     @IBAction func cancel(_ sender: UIBarButtonItem)
     {
+        guard !authenticationInProgress else { return }
         self.dismiss(animated: true) { [weak self] in
             self?.completionHandler?(nil)
         }
