@@ -15,21 +15,24 @@ struct IPASigningSetupPage: View {
             } else if !state.serviceAvailable || !state.capabilitiesReady {
                 IPAEmptyState(title: "Complete Build Required", subtitle: "Install iPAStore with all its app extensions retained to use signing setup.", symbol: "checkmark.shield")
             } else {
-                IPAInteractiveSigningScene(state: state) { dismiss() }.ignoresSafeArea()
-                    .toolbar(.hidden, for: .navigationBar, .tabBar)
+                IPAInteractiveSigningScene { dismiss() }
+                    .ignoresSafeArea(.container, edges: .bottom)
+                    .toolbar(.hidden, for: .tabBar)
             }
             #endif
-        }.background(IPAStyle.canvas).navigationTitle("Signing Setup").navigationBarTitleDisplayMode(.inline)
-            .onAppear { UserDefaults.standard.set(true, forKey: "IPASigningSetupOpen") }
+        }.background(IPAStyle.canvas).navigationTitle("Signing Setup").navigationBarTitleDisplayMode(.inline).ipaNativePage()
+            .onAppear {
+                state.importInteractiveReadiness()
+                UserDefaults.standard.set(true, forKey: "IPASigningSetupOpen")
+            }
             .onDisappear { UserDefaults.standard.set(false, forKey: "IPASigningSetupOpen"); state.importInteractiveReadiness(allowCertificateImport: true) }
     }
 }
 
 #if !IPASTORE_PREVIEW
 private struct IPAInteractiveSigningScene: UIViewControllerRepresentable {
-    let state: IPASigningState
     let done: () -> Void
-    func makeUIViewController(context: Context) -> IPAInteractiveSigningController { IPAInteractiveSigningController(state: state, done: done) }
+    func makeUIViewController(context: Context) -> IPAInteractiveSigningController { IPAInteractiveSigningController(done: done) }
     func updateUIViewController(_ controller: IPAInteractiveSigningController, context: Context) {}
     static func dismantleUIViewController(_ controller: IPAInteractiveSigningController, coordinator: ()) { controller.stop() }
 }
@@ -40,26 +43,21 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
     private static let timingQueue = DispatchQueue(label: "app.ipastore.signing-startup", qos: .utility)
     private let createdAt = CACurrentMediaTime()
     private let done: () -> Void
-    private let state: IPASigningState
     private var lastFrame = CGRect.null
     private var lastInsets = UIEdgeInsets.zero
     private var scene: AppSceneViewController?
     private var stopped = false
     private var activated = false
     private let message = UILabel()
-    private let cancel = UIButton(type: .system)
-    init(state: IPASigningState, done: @escaping () -> Void) { self.state = state; self.done = done; super.init(nibName: nil, bundle: nil) }
+    init(done: @escaping () -> Void) { self.done = done; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         message.isHidden = true; message.textColor = .secondaryLabel; message.textAlignment = .center; message.numberOfLines = 0
         message.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(message)
-        cancel.setTitle("Back", for: .normal); cancel.translatesAutoresizingMaskIntoConstraints = false
-        cancel.addTarget(self, action: #selector(close), for: .touchUpInside); view.addSubview(cancel)
         NSLayoutConstraint.activate([
-            message.centerYAnchor.constraint(equalTo: view.centerYAnchor), message.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24), message.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-            cancel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8), cancel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20), cancel.heightAnchor.constraint(equalToConstant: 44)
+            message.centerYAnchor.constraint(equalTo: view.centerYAnchor), message.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24), message.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24)
         ])
         // Load the isolated signing view without presenting a second setup page.
         DispatchQueue.main.async { [weak self] in self?.startSigning() }
@@ -104,7 +102,7 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
         activated = true; lastFrame = .null
         recordStartupTiming("ready")
         view.setNeedsLayout()
-        message.isHidden = true; cancel.isHidden = true
+        message.isHidden = true
         UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.18) { vc.view.alpha = 1 }
     }
     private func recordStartupTiming(_ phase: String) {
@@ -115,7 +113,7 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
     private func showFailure(_ text: String) {
         recordStartupTiming("failed")
         scene?.view.alpha = 0
-        message.text = text; message.isHidden = false; cancel.isHidden = false
+        message.text = text; message.isHidden = false
     }
     func appSceneVC(_ vc: AppSceneViewController!, didInitializeWithError error: (any Error)!) {
         guard !stopped else { return }
@@ -131,7 +129,6 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
             showFailure("Signing setup closed before finishing. Your installed apps are still here. Go back and try again. If it happens when opening the VPN, open LocalDevVPN from the Home Screen first, connect it, then return to setup.")
         }
     }
-    @objc private func close() { stop(); done() }
     func stop() {
         guard !stopped else { return }
         stopped = true

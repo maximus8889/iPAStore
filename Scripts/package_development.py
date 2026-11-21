@@ -32,6 +32,29 @@ info['CFBundleDisplayName'] = 'iPAStore'
 info['ALTAppGroups'] = ['group.com.SideStore.SideStore']
 info['INIntentsSupported'] = ['RefreshAllIntent', 'ViewAppIntent']
 info['NSUserActivityTypes'] = ['RefreshAllIntent', 'ViewAppIntent']
+
+# Some Xcode versions emit asset names without icon files for alternate icon
+# appearances. Include the named PNG renditions so iOS can resolve the icons
+# when a sideloaded bundle has been re-signed.
+for device_key, suffix, renditions in [
+    ('CFBundleIcons', '', [(60, 2), (60, 3)]),
+    ('CFBundleIcons~ipad', '~ipad', [(76, 2), (83.5, 2)]),
+]:
+    for name, icon in info.get(device_key, {}).get('CFBundleAlternateIcons', {}).items():
+        if icon.get('CFBundleIconFiles'):
+            continue
+        assets = root / 'Resources' / 'Assets.xcassets' / (name + '.appiconset')
+        source = assets / next(entry['filename'] for entry in json.loads((assets / 'Contents.json').read_text())['images']
+                               if entry.get('filename') and not entry.get('appearances'))
+        files = []
+        for points, scale in renditions:
+            base = f'{name}{points}x{points}'
+            target = app / f'{base}@{scale}x{suffix}.png'
+            pixels = str(int(points * scale))
+            subprocess.run(['sips', '-z', pixels, pixels, str(source), '--out', str(target)],
+                           stdout=subprocess.DEVNULL, check=True)
+            files.append(base)
+        icon['CFBundleIconFiles'] = files
 # Keep the host's unique launch scheme; the private service URL is passed internally.
 write_plist(info_path, info)
 # Separate native icon artwork for the signing setup, whose compiled asset catalog

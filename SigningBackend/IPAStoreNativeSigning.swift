@@ -78,7 +78,25 @@ private final class IPAStoreNativeSigningState: ObservableObject {
     func reload() {
         pairingImported = PairingFileManager.shared.hasPairingFile()
         accountStored = AuthManager.shared.isAuthenticated
-        if !pairingImported { connectionVerified = false }
+        connectionVerified = pairingImported && UserDefaults.standard.object(forKey: "IPAStoreConnectionCheckedAt") is Date
+        storeReadiness()
+    }
+    private func storeReadiness() {
+        guard initialized, getenv("IPA_SIGNING_INTERACTIVE") != nil,
+              let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        var status: [String: Any] = [
+            "pairingImported": pairingImported,
+            "accountStored": accountStored,
+            "certificateAvailable": Keychain.shared.signingCertificate != nil
+        ]
+        if connectionVerified, let checkedAt = UserDefaults.standard.object(forKey: "IPAStoreConnectionCheckedAt") as? Date {
+            status["connectionCheckedAt"] = checkedAt
+        }
+        let file = documents.appendingPathComponent("IPAStoreSetupReadiness.plist")
+        do {
+            let data = try PropertyListSerialization.data(fromPropertyList: status, format: .binary, options: 0)
+            try data.write(to: file, options: .atomic)
+        } catch { debugLog("Could not save signing readiness for iPAStore") }
     }
     // Returns true when a certificate must be opened by the host password screen.
     func importPairing(_ url: URL) -> Bool {
@@ -119,9 +137,11 @@ private final class IPAStoreNativeSigningState: ObservableObject {
             connectionVerified = true
             stepCompleted()
             UserDefaults.standard.set(Date(), forKey: "IPAStoreConnectionCheckedAt")
+            storeReadiness()
         } catch {
             connectionVerified = false
             UserDefaults.standard.removeObject(forKey: "IPAStoreConnectionCheckedAt")
+            storeReadiness()
             message = "The iPhone connection couldn’t be verified. Enable the local connection helper, connect to Wi-Fi, and try again. If it still fails, pair this iPhone again in step 1."
         }
     }
@@ -168,6 +188,7 @@ private final class IPAStoreNativeSigningState: ObservableObject {
                             guard file.deletingLastPathComponent() == folder.standardizedFileURL else { throw CocoaError(.fileReadInvalidFileName) }
                             try PairingFileManager.shared.importPairingFile(from: file)
                             self.finishPairing()
+                            UserDefaults.standard.removeObject(forKey: "IPAStoreConnectionCheckedAt")
                             self.reload(); self.stepCompleted()
                             self.pairingStatus = "This iPhone is paired. Continue with the local connection below."
                         } catch { self.cancelPairing(reason: "The pairing could not be saved. Try pairing this iPhone again.") }
@@ -216,10 +237,6 @@ private final class IPAStoreNativeSigningState: ObservableObject {
             if !(error is CancellationError) { message = IPAAccountSignInFailure(error).message }
         }
     }
-    func finishSetup(_ done: () -> Void) {
-        if pairingImported && connectionVerified && accountStored { stepCompleted() }
-        done()
-    }
     func receiveInstallation(_ notification: Notification) {
         guard let url = notification.userInfo?[AppDelegate.importAppDeepLinkURLKey] as? URL else { return }
         pendingInstallation = url
@@ -254,6 +271,7 @@ private struct IPAStoreNativeSigningView: View {
     @State private var choosingPairing = false
     @State private var returningCertificate = false
     @Environment(\.openURL) private var openURL
+    private var embedded: Bool { getenv("IPA_SIGNING_INTERACTIVE") != nil }
     var body: some View {
         NavigationStack {
             Form {
@@ -301,9 +319,12 @@ private struct IPAStoreNativeSigningView: View {
             }
             .contentMargins(.top, 6, for: .scrollContent)
             .navigationTitle("").navigationBarTitleDisplayMode(.inline)
+            .toolbar(embedded ? .hidden : .visible, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    SwiftUI.Button("Done") { state.finishSetup(done) }.disabled(state.busy || state.installing)
+                if !embedded {
+                    ToolbarItem(placement: .topBarLeading) {
+                        SwiftUI.Button("Back", systemImage: "chevron.backward", action: done).disabled(state.busy || state.installing)
+                    }
                 }
             }
             .task { await state.prepare(); state.installPending() }
@@ -329,7 +350,7 @@ private struct IPAStoreNativeSigningView: View {
                         Section("Next Steps") {
                             Text("1. Tap Pair This iPhone and approve pairing in iOS Settings.")
                             Text("2. Enable the local connection and tap Verify Connection.")
-                            Text("3. Connect your Apple Account. Finish any verification Apple requests, then tap Done.")
+                            Text("3. Connect your Apple Account. Finish any verification Apple requests, then go back.")
                         }
                     }.navigationTitle("Help & Recovery").navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .confirmationAction) { SwiftUI.Button("Done") { state.message = nil } } }

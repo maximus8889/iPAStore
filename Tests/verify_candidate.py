@@ -13,7 +13,13 @@ assert info['CFBundleDisplayName']=='iPAStore'
 if args.expected_build: assert info['CFBundleVersion']==args.expected_build
 for resource in ['LibraryDirectory.json','Monocraft.ttf','Monocraft-LICENSE.txt','iOSHub-LICENSE.txt','OpenSourceNotices.txt']: assert (app/resource).is_file(), resource
 registry=json.loads((app/'LibraryDirectory.json').read_text());assert len(registry['libraries'])==87
-alternates=info['CFBundleIcons']['CFBundleAlternateIcons'];assert {'AppIconLight','AppIconMidnight'}<=set(alternates)
+selectable_icons = {'AppIconLight', 'AppIconMidnight', 'AppIconOcean', 'AppIconJade', 'AppIconIris', 'AppIconEmber', 'AppIconSand', 'AppIconRose'}
+for key in ('CFBundleIcons', 'CFBundleIcons~ipad'):
+    alternates = info[key]['CFBundleAlternateIcons']
+    assert selectable_icons <= set(alternates)
+    for name in selectable_icons:
+        files = alternates[name]['CFBundleIconFiles']
+        assert files and all(any(app.glob(base + '@*.png')) for base in files), (key, name)
 service=app/'Frameworks/SideStoreApp.framework';v=plistlib.loads((service/'Info.plist').read_bytes());data=(service/v['CFBundleExecutable']).read_bytes();assert struct.unpack_from('<I',data,12)[0]==6
 for marker in [b'IPAStoreSigningController',b'startTaskWithRequest:progress:completion:',b'startRefreshWithProgress:completion:']:assert marker in data
 with zipfile.ZipFile(args.ipa) as z:assert z.testzip() is None

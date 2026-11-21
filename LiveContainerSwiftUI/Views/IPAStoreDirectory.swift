@@ -276,21 +276,12 @@ extension View {
 }
 
 struct IPASuggestionsView: View {
-    @State private var adding = false
-
     var body: some View {
         ScrollView { IPASuggestionCards() }
             .background(IPAStyle.canvas)
             .navigationTitle("Suggestions")
             .navigationBarTitleDisplayMode(.inline)
             .ipaNativePage()
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { adding = true } label: { Image(systemName: "plus") }
-                        .tint(.primary).accessibilityLabel("Add Store")
-                }
-            }
-            .sheet(isPresented: $adding) { IPAAddStoreSheet() }
     }
 }
 
@@ -346,18 +337,18 @@ struct IPAStorePage: View {
                     }
                     IPAWebLink(destination: reference.suggestion?.webURL ?? reference.url) {
                         VStack(alignment: .center, spacing: 4) {
-                            Text("WEB").ipaFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
+                            Text("WEB").ipaFont(.caption2, weight: .semibold).opacity(0.74)
                             Image(systemName: "globe").ipaFont(.title3)
                             Text("Open").ipaFont(.caption).lineLimit(1)
                         }.frame(maxWidth: .infinity, minHeight: metadataHeight)
-                            .background(IPAStyle.card, in: RoundedRectangle(cornerRadius: 13))
+                            .modifier(IPACollectionActionTile())
                     }
                     IPAWebLink(destination: reference.publisher ?? source?.website ?? reference.url) {
                         VStack(alignment: .center, spacing: 4) {
-                            Text("DEVELOPER").ipaFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
+                            Text("DEVELOPER").ipaFont(.caption2, weight: .semibold).opacity(0.74)
                             Text(reference.suggestion?.developer ?? reference.publisher?.host ?? source?.website?.host ?? reference.name).ipaFont(.caption).lineLimit(3).truncationMode(.tail).multilineTextAlignment(.center)
                         }.frame(maxWidth: .infinity, minHeight: metadataHeight)
-                            .background(IPAStyle.card, in: RoundedRectangle(cornerRadius: 13))
+                            .modifier(IPACollectionActionTile())
                     }
                 }.frame(height: metadataHeight).clipped()
                 Divider()

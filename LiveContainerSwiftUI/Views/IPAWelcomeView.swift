@@ -182,9 +182,11 @@ struct IPASetupHeading: View {
     let symbol: String
     let title: String
     let subtitle: String
+    @Environment(\.ipaAccent) private var accent
+    var symbolColor: Color? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: symbol).font(.system(size: 46, weight: .light)).foregroundStyle(.tint)
+            Image(systemName: symbol).font(.system(size: 46, weight: .light)).foregroundStyle(symbolColor ?? accent)
             Text(title).ipaFont(.largeTitle, weight: .bold)
             Text(subtitle).ipaFont(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
@@ -267,7 +269,7 @@ struct IPASigningHero: View {
                     Text(mode == "container" ? "Keep iPAStore Ready" : "Certificate Mode").ipaFont(.title2, weight: .bold)
                     if mode == "container", state.freeSetupComplete, let profile = renewal.profile {
                         Text("Expires \(profile.expiresAt.formatted(.relative(presentation: .named)))").ipaFont(.subheadline).foregroundStyle(.secondary)
-                    } else { Text(mode == "container" ? "Complete Free setup to enable signing." : "Your apps. On your iPhone.").ipaFont(.subheadline).foregroundStyle(.secondary) }
+                    } else { Text(mode == "container" ? "Free way to sign." : "Your apps. On your iPhone.").ipaFont(.subheadline).foregroundStyle(.secondary) }
                 }
             }
             HStack(spacing: 12) {
@@ -350,7 +352,7 @@ struct IPAHowItWorksView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                IPASetupHeading(symbol: "hand.wave.fill", title: "Make yourself at home.", subtitle: "Here’s a little help getting comfortable with iPAStore. Come back whenever you need a hand.")
+                IPASetupHeading(symbol: "book.closed.fill", title: "Make yourself at home.", subtitle: "Here’s a little help getting comfortable with iPAStore. Come back whenever you need a hand.", symbolColor: .purple)
                 guide("Your apps, your choice", symbol: "square.grid.2x2.fill") {
                     Text("Free keeps your apps together inside iPAStore. Certificate uses your own signing files. You can change your choice in Settings without deleting your apps.")
                     Text("With a .p12 alone, compatible apps can run inside iPAStore after verification. A matching provisioning profile unlocks separate iPhone installations.")

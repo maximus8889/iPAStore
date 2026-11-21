@@ -54,16 +54,18 @@ struct PreviewAppsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     IPATabHeading("Apps")
-                        .padding(.trailing, 52).frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.trailing, 54).frame(maxWidth: .infinity, alignment: .leading)
+                    IPACollectionSearchField(query: $query, presented: $searching).padding(.horizontal, -8)
                 }.padding(.horizontal, 20).padding(.top, 8).frame(maxWidth: 760).frame(maxWidth: .infinity)
             }
-            .overlay { IPACollectionEmptyState(symbol: IPAStyle.appsSymbol, message: "Your downloaded apps appear here.") {} }
+            .overlay {
+                if !searching { IPACollectionEmptyState(symbol: IPAStyle.appsSymbol, message: "Your downloaded apps appear here.") {} }
+            }
             .background(IPAStyle.canvas).toolbar(.hidden, for: .navigationBar)
             .ipaCollectionToolbar {
                 IPAAppActions(add: { installRequested = true }, refresh: nil,
                               search: { searching = true }, sort: nil)
             }
-            .modifier(IPACollectionSearch(query: $query, presented: $searching))
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.InstallAppNotification)) { _ in installRequested = true }
         .alert("Device Build Required", isPresented: $installRequested) {

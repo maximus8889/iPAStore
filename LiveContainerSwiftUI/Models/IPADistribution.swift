@@ -197,7 +197,7 @@ struct IPAUpdatesView: View {
                     Text(checking ? "Checking…" : "Check for Updates")
                 }
             }
-            .buttonStyle(IPAPillStyle(prominent: true, compact: true))
+            .buttonStyle(IPAPillStyle(prominent: true, minimumHeight: 44))
             .disabled(work != nil)
         }
         .padding(20).frame(maxWidth: .infinity, alignment: .leading)
@@ -267,8 +267,9 @@ struct IPAUpdatesView: View {
                     return
                 }
                 try Task.checkCancellation()
-                if let installedBuild, let build = latest.build, build < installedBuild {
-                    checkMessage = "No newer build has been published."
+                if let installedBuild, let build = latest.build, build <= installedBuild {
+                    checkMessage = "You’re on the latest version."
+                    if build == installedBuild { release = latest }
                     return
                 }
                 release = latest

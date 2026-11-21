@@ -38,6 +38,7 @@ protocol IPAFeedbackOption: Identifiable, Equatable {
     private static let lift = UIImpactFeedbackGenerator(style: .soft)
     private static let settle = UIImpactFeedbackGenerator(style: .rigid)
     private static let confirmation = UINotificationFeedbackGenerator()
+    private static let accentImpact = UIImpactFeedbackGenerator(style: .heavy)
     private static var launchTail: Task<Void, Never>?
     private static var sounds: [Sound: SystemSoundID] = [:]
     private static var lastSuccess: TimeInterval = -.infinity
@@ -55,6 +56,11 @@ protocol IPAFeedbackOption: Identifiable, Equatable {
             settle.impactOccurred(intensity: 0.28)
         }
     }
+    static func accentChanged() {
+        guard UIApplication.shared.applicationState == .active, Haptic.selected != .off else { return }
+        accentImpact.impactOccurred(intensity: 0.9)
+    }
+
     static func confirmationHaptic() {
         preview(Haptic.selected)
     }

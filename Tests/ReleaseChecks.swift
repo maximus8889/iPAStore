@@ -569,6 +569,13 @@ import Foundation
         let consumed = IPASigningSetupHandoff.consume(hostDocuments: handoffRoot)
         precondition(consumed?.pairingImported == true && consumed?.accountStored == true && consumed?.certificateAvailable == true && consumed?.connectionCheckedAt == connectionDate, "Read the child process's real Documents path")
         precondition(consumed?.propertyList["unexpectedSecret"] == nil, "Only readiness flags and connection time cross into host defaults")
+        let liveFile = childDocuments.appendingPathComponent("IPAStoreSetupReadiness.plist")
+        let live = ["pairingImported": true, "accountStored": false, "certificateAvailable": false]
+        try PropertyListSerialization.data(fromPropertyList: live, format: .binary, options: 0).write(to: liveFile)
+        let dismissed = IPASigningSetupHandoff.consume(hostDocuments: handoffRoot)
+        precondition(dismissed?.pairingImported == true && dismissed?.accountStored == false,
+                     "Returning with Back or swiping preserves completed steps")
+        precondition(!FileManager.default.fileExists(atPath: liveFile.path), "Consume the live snapshot only once")
         precondition(!FileManager.default.fileExists(atPath: handoffFile.path) && IPASigningSetupHandoff.consume(hostDocuments: handoffRoot) == nil, "Consume once without clearing saved host readiness on subsequent appearances")
         let certificateInbox = childDocuments.appendingPathComponent("IPAStoreCertificateImport.p12")
         let sampleCertificate = Data([1, 2, 3, 4])

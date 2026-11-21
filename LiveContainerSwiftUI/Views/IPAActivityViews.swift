@@ -64,7 +64,7 @@ struct IPAHistoryList: View {
         .background(IPAStyle.canvas).navigationTitle(downloaded ? "Downloaded Apps" : "Recent Apps").navigationBarTitleDisplayMode(.inline).ipaNativePage()
             .modifier(IPACollectionSearch(query: $query, presented: $searching))
             .toolbar { ToolbarItem(placement: .topBarTrailing) {
-                Menu { Button("Search", systemImage: "magnifyingglass") { searching = true }; Divider(); Picker("Sort", selection: $order) { Text("Most Recent").tag("recent"); Text("Oldest First").tag("oldest"); Text("Name").tag("name") }.pickerStyle(.inline).labelsHidden() } label: { Image(systemName: "line.3.horizontal.decrease") }.accessibilityLabel("Sort history")
+                Menu { Button("Search", systemImage: "magnifyingglass") { searching = true }; Divider(); Picker("Sort", selection: $order) { Text("Most Recent").tag("recent"); Text("Oldest First").tag("oldest"); Text("Name").tag("name") }.pickerStyle(.inline).labelsHidden() } label: { IPACollectionControlIcon(symbol: "line.3.horizontal.decrease") }.accessibilityLabel("Sort history")
             } }
     }
 }
@@ -114,42 +114,47 @@ struct IPARecentShelf: View {
     }
 }
 
-// A stable, shared search field. The collection stays mounted while the Sort
-// menu reveals it, preserving scroll position and avoiding navigation rebuilds.
+// Native collection pages put the filter below the navigation bar. Tab roots
+// insert the same field directly beneath their own headings.
 struct IPACollectionSearch: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var query: String
     @Binding var presented: Bool
     var prompt = "Search Apps"
+
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .top, spacing: 0) {
-            if presented { IPACollectionSearchField(query: $query, presented: $presented, prompt: prompt).transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity)) }
-        }.animation(reduceMotion ? nil : IPAMotion.state(reduced: false), value: presented).scrollDismissesKeyboard(.interactively)
+            IPACollectionSearchField(query: $query, presented: $presented, prompt: prompt)
+                .padding(.horizontal, 12).frame(maxWidth: 760).frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
     }
 }
-private struct IPACollectionSearchField: View {
+
+struct IPACollectionSearchField: View {
     @Binding var query: String
     @Binding var presented: Bool
+    var prompt = "Search Apps"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var editing = false
-    let prompt: String
+
     var body: some View {
-        HStack(spacing: 6) {
-            IPACatalogSearchField(text: $query, editing: $editing, prompt: prompt, autofocus: true)
-                .frame(height: 52)
-            if editing {
-                IPACloseSearchButton(label: "Dismiss keyboard") {
-                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        Group {
+            if presented {
+                HStack(spacing: 6) {
+                    IPACatalogSearchField(text: $query, editing: $editing, prompt: prompt, autofocus: true)
+                        .frame(height: 52)
+                    IPACloseSearchButton {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        query = ""
+                        presented = false
+                    }
                 }
-            } else {
-                IPACloseSearchButton {
-                    query = ""
-                    presented = false
-                }
+                .transition(reduceMotion ? .opacity : .offset(y: -5).combined(with: .opacity))
             }
-        }.padding(.horizontal, 12).padding(.vertical, 4).frame(maxWidth: 760).frame(maxWidth: .infinity)
-            .background(.bar)
+        }.animation(IPAMotion.state(reduced: reduceMotion), value: presented)
     }
 }
+
 
 struct IPACollectionSortSheet<Option: Hashable>: View {
     @Binding var selection: Option

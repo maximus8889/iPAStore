@@ -28,8 +28,10 @@ enum IPASigningSetupHandoff {
         // The signing process HOME is host Documents/SideStore. Its document
         // directory therefore adds another Documents component. Keep the old
         // location as a migration fallback, never as the primary contract.
-        for relative in ["SideStore/Documents/IPAStoreSetupStatus.plist", "SideStore/IPAStoreSetupStatus.plist"] {
-            let file = hostDocuments.appendingPathComponent(relative)
+        let liveReadiness = hostDocuments.appendingPathComponent("SideStore/Documents/IPAStoreSetupReadiness.plist")
+        let completed = ["SideStore/Documents/IPAStoreSetupStatus.plist", "SideStore/IPAStoreSetupStatus.plist"]
+            .map { hostDocuments.appendingPathComponent($0) }
+        for file in completed + [liveReadiness] {
             guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0, size < 4096,
                   let data = try? Data(contentsOf: file), data.count < 4096,
                   let value = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
@@ -38,6 +40,7 @@ enum IPASigningSetupHandoff {
                   let certificate = value["certificateAvailable"] as? Bool else { continue }
             let readiness = IPASigningSetupReadiness(pairingImported: pairing, accountStored: account, certificateAvailable: certificate, connectionCheckedAt: value["connectionCheckedAt"] as? Date)
             try? FileManager.default.removeItem(at: file)
+            if file != liveReadiness { try? FileManager.default.removeItem(at: liveReadiness) }
             return readiness
         }
         return nil

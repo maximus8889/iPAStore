@@ -166,8 +166,8 @@ struct LCTweakFolderView : View {
                             Button("Sign All Tweaks", systemImage: "signature") { Task { await signAllTweaks() } }
                         }
                     } label: {
-                        Image(systemName: "plus")
-                    }.tint(.primary).accessibilityLabel("Add Tweak")
+                        IPACollectionControlIcon(symbol: "plus")
+                    }.accessibilityLabel("Add Tweak")
                 } else {
                     ProgressView().progressViewStyle(.circular)
                 }

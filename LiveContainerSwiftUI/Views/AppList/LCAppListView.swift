@@ -161,11 +161,15 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
             independentApps: installer.independentApps, index: catalogIndex, history: activity.downloads
         ).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         IPATabHeading("Apps")
-                            .padding(.trailing, 52).frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.trailing, 54).frame(maxWidth: .infinity, alignment: .leading)
+                            .id("apps-heading")
+                        IPACollectionSearchField(query: $searchContext.query, presented: $collectionSearch)
+                            .padding(.horizontal, -8)
                         if let failed = installer.jobs.first(where: { $0.failure != nil }) {
                             Button { installer.showFailure(failed.id) } label: {
                                 Label("Some apps need attention", systemImage: "exclamationmark.circle")
@@ -306,8 +310,10 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                 }
 
             }
+            .onChange(of: collectionSearch) { _, shown in if shown { proxy.scrollTo("apps-heading", anchor: .top) } }
+            .scrollDismissesKeyboard(.interactively)
             .overlay {
-                if sortedApps.isEmpty && sortedHiddenApps.isEmpty && installer.independentApps.isEmpty && installer.jobs.isEmpty && guestSession.interruptedRecord == nil {
+                if !collectionSearch && sortedApps.isEmpty && sortedHiddenApps.isEmpty && installer.independentApps.isEmpty && installer.jobs.isEmpty && guestSession.interruptedRecord == nil {
                     IPACollectionEmptyState(symbol: IPAStyle.appsSymbol, message: "Your downloaded apps appear here.") {}
                         .onTapGesture(count: 3) { Task { await authenticateUser() } }
                 }
@@ -329,11 +335,11 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                     )
                 }
             }
-            .modifier(IPACollectionSearch(query: $searchContext.query, presented: $collectionSearch))
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .background(IPAStyle.canvas)
             .toolbar(.hidden, for: .navigationBar)
+            }
         }
         .alert("lc.common.error".loc, isPresented: $errorShow){
             Button("lc.common.ok".loc, action: {

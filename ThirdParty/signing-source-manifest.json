@@ -92,7 +92,7 @@
     "changes": [
       {
         "path": "SigningBackend/IPAStoreNativeSigning.swift",
-        "sha256": "c914fa472a12b834871daff57ac0b5f691536a44f70e2f51ce81bc144d2cf95f"
+        "sha256": "4c96dd3c1d83942d234e9ec6e7b7d80c72617258f105f33826a96037c874e617"
       },
       {
         "path": "SideStoreSupport/IPAResultGate.swift",

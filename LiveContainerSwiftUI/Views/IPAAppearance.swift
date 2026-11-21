@@ -16,17 +16,19 @@ enum IPAMotion {
 struct IPAPillStyle: ButtonStyle {
     var prominent = false
     var compact = false
+    var alwaysFilled = false
+    var minimumHeight: CGFloat? = nil
     @AppStorage("IPAFilledButtons") private var filledButtons = false
     @AppStorage("IPAAccentHex") private var accentHex = "systemBlue"
     @Environment(\.isEnabled) private var enabled
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
-        let filled = prominent && filledButtons
+        let filled = alwaysFilled || (prominent && filledButtons)
         return configuration.label.ipaFont(.subheadline, weight: .semibold)
             .lineLimit(1).fixedSize(horizontal: true, vertical: true)
             .foregroundStyle(filled ? IPAAppearance.buttonForeground(accentHex) : IPAAppearance.accent(accentHex))
-            .padding(.horizontal, compact ? 13 : 18).frame(minWidth: 66, minHeight: compact ? 30 : 34)
+            .padding(.horizontal, compact ? 13 : 18).frame(minWidth: 66, minHeight: minimumHeight ?? (compact ? 30 : 34))
             .background(filled ? IPAAppearance.accent(accentHex) : Color(uiColor: scheme == .dark ? .tertiarySystemFill : .secondarySystemFill), in: Capsule())
             .opacity(enabled ? (configuration.isPressed ? 0.82 : 1) : 0.5)
             .animation(IPAMotion.press(configuration.isPressed, reduced: reduceMotion), value: configuration.isPressed)
@@ -57,6 +59,16 @@ struct IPAFontChoice: Identifiable {
         .init(id: "pixel", name: "Monocraft", postScript: "Monocraft")
     ]
     static func face(for id: String) -> String? { choices.first { $0.id == id }?.postScript }
+
+    var previewFont: Font {
+        if let postScript { return .custom(postScript, size: 17, relativeTo: .body) }
+        switch id {
+        case "rounded": return .system(.body, design: .rounded)
+        case "serif": return .system(.body, design: .serif)
+        case "mono": return .system(.body, design: .monospaced)
+        default: return .system(.body, design: .default)
+        }
+    }
 }
 
 enum IPAAppSubtitle: String, CaseIterable, Identifiable {
@@ -193,11 +205,11 @@ struct IPAAppearanceView: View {
                 }
             }
             Section {
-                Picker("Font", selection: $font) {
-                    ForEach(IPAFontChoice.choices.filter { $0.postScript.map { UIFont(name: $0, size: 17) != nil } ?? true }) { choice in
-                        Text(choice.name).font(choice.postScript.map { .custom($0, size: 17, relativeTo: .body) } ?? .body).tag(choice.id)
-                    }
-                }.pickerStyle(.navigationLink)
+                NavigationLink {
+                    IPAFontPicker(selection: $font)
+                } label: {
+                    LabeledContent("Font", value: IPAFontChoice.choices.first { $0.id == font }?.name ?? "System")
+                }
                 Toggle("Bold Text", isOn: $bold).disabled(systemBold)
             } header: { Text("Typography") }
             Section("Home Screen") {
@@ -208,8 +220,8 @@ struct IPAAppearanceView: View {
                     ForEach(IPAAppSubtitle.allCases) { Text($0.title).tag($0) }
                 }.pickerStyle(.navigationLink)
                 Picker("Button Style", selection: $filledButtons) {
-                    Text("Gray").tag(false)
-                    Text("Filled").tag(true)
+                    Text("Default").tag(false)
+                    Text("Colored").tag(true)
                 }.pickerStyle(.menu).tint(.secondary)
             }
             Section("Sounds & Haptics") {
@@ -232,7 +244,7 @@ struct IPAAppearanceView: View {
     private func selectAccent(_ value: String) {
         guard hex != value else { return }
         hex = value
-        IPAFeedback.confirmationHaptic()
+        IPAFeedback.accentChanged()
     }
 
     private func feedbackRow(_ title: LocalizedStringKey, value: String, symbol: String) -> some View {
@@ -262,6 +274,50 @@ struct IPAAppearanceView: View {
     }
 }
 
+private struct IPAFontPicker: View {
+    @Binding var selection: String
+
+    var body: some View {
+        List(IPAFontChoice.choices.filter { $0.postScript.map { UIFont(name: $0, size: 17) != nil } ?? true }) { choice in
+            Button {
+                selection = choice.id
+            } label: {
+                HStack {
+                    Text(choice.name).font(choice.previewFont).foregroundStyle(.primary)
+                    Spacer()
+                    if selection == choice.id {
+                        Image(systemName: "checkmark").foregroundStyle(.tint).accessibilityHidden(true)
+                    }
+                }.frame(minHeight: 32).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+                .accessibilityAddTraits(selection == choice.id ? .isSelected : [])
+        }.navigationTitle("Font").navigationBarTitleDisplayMode(.inline).ipaNativePage()
+    }
+}
+
+struct IPACollectionControlIcon: View {
+    let symbol: String
+    @AppStorage("IPAFilledButtons") private var filled = false
+    @Environment(\.ipaAccent) private var accent
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 20, weight: .medium))
+            .foregroundStyle(filled ? accent : Color.primary)
+    }
+}
+
+struct IPACollectionActionTile: ViewModifier {
+    @AppStorage("IPAFilledButtons") private var filled = false
+    @AppStorage("IPAAccentHex") private var hex = "systemBlue"
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(filled ? IPAAppearance.buttonForeground(hex) : Color.primary)
+            .background(filled ? IPAAppearance.accent(hex) : IPAStyle.card, in: RoundedRectangle(cornerRadius: 13))
+    }
+}
+
 private struct IPAIconPicker: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var current = UIApplication.shared.alternateIconName
@@ -277,8 +333,11 @@ private struct IPAIconPicker: View {
         List {
             ForEach(choices, id: \.0) { name, icon, asset in
                 Button {
+                    guard UIApplication.shared.supportsAlternateIcons else {
+                        error = "Icon changes are unavailable on this installation."
+                        return
+                    }
                     guard current != icon else { return }
-                    IPAFeedback.confirmationHaptic()
                     changing = true
                     iconChanged = false
                     Task { @MainActor in
@@ -286,6 +345,11 @@ private struct IPAIconPicker: View {
                         do {
                             try await UIApplication.shared.setAlternateIconName(icon)
                             current = UIApplication.shared.alternateIconName
+                            guard current == icon else {
+                                self.error = "iOS didn’t apply the selected icon. Try again while iPAStore is open."
+                                return
+                            }
+                            IPAFeedback.confirmationHaptic()
                             iconChanged = true
                         } catch {
                             self.error = "The icon couldn’t be changed. Try again while iPAStore is open."
@@ -297,8 +361,9 @@ private struct IPAIconPicker: View {
                         Text(name).foregroundStyle(.primary)
                         Spacer()
                         if current == icon { Image(systemName: "checkmark").foregroundStyle(.tint).transition(IPAMotion.reveal(reduced: reduceMotion)) }
-                    }.padding(.vertical, 6).animation(IPAMotion.state(reduced: reduceMotion), value: current)
-                }.buttonStyle(IPAControlPressStyle(scale: 0.985)).disabled(changing || !UIApplication.shared.supportsAlternateIcons)
+                    }.padding(.vertical, 6).contentShape(Rectangle())
+                        .animation(IPAMotion.state(reduced: reduceMotion), value: current)
+                }.buttonStyle(IPAControlPressStyle(scale: 0.985)).disabled(changing)
             }
         }.navigationTitle("App Icon").navigationBarTitleDisplayMode(.inline).ipaNativePage()
             .safeAreaInset(edge: .bottom) {
@@ -319,7 +384,9 @@ struct IPAControlPressStyle: ButtonStyle {
     var scale: CGFloat = 0.96
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.opacity(configuration.isPressed ? 0.7 : 1)
+        configuration.label
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? scale : 1)
             .animation(IPAMotion.press(configuration.isPressed, reduced: reduceMotion), value: configuration.isPressed)
     }
 }

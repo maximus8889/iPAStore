@@ -9,12 +9,7 @@ enum IPAStyle {
     static let canvas = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark ? UIColor.systemBackground.resolvedColor(with: traits) : UIColor(red: 0.98, green: 0.977, blue: 0.968, alpha: 1)
     })
-    // Detail pages sit above the black tab canvas; sheets also respect UIKit's elevation.
-    static let productCanvas = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor.systemBackground.resolvedColor(with: UITraitCollection(traitsFrom: [traits, UITraitCollection(userInterfaceLevel: .elevated)]))
-            : UIColor(red: 0.98, green: 0.977, blue: 0.968, alpha: 1)
-    })
+    static let productCanvas = canvas
     static let card = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .secondarySystemGroupedBackground : .white })
     static let storeSymbol = "rectangle.stack"
     static let appsSymbol = "square.grid.2x2"
@@ -170,11 +165,13 @@ struct IPACollectionActions<Content: View>: View {
 
     var body: some View {
         Menu(content: content) {
-            Image(systemName: "plus").font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 44, height: 44)
-                .background(IPAStyle.card, in: Circle())
-                .contentShape(Circle())
+            if #available(iOS 26.0, *) {
+                IPACollectionControlIcon(symbol: "plus").frame(width: 46, height: 46)
+                    .glassEffect(.regular, in: .circle)
+            } else {
+                IPACollectionControlIcon(symbol: "plus").frame(width: 46, height: 46)
+                    .background(IPAStyle.card, in: Circle())
+            }
         }
         .menuOrder(.fixed)
         .accessibilityLabel(Text(title))
@@ -217,16 +214,25 @@ struct IPACollectionEmptyState<Action: View>: View {
     @ViewBuilder let action: () -> Action
 
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: symbol).font(.system(size: 48, weight: .light))
-                .frame(width: 62, height: 62)
-                .accessibilityHidden(true)
-            Text(message).ipaFont(.subheadline)
-            action()
+        GeometryReader { geometry in
+            let top = geometry.frame(in: .global).minY
+            let windowTop = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .compactMap(\.keyWindow).first?.safeAreaInsets.top ?? top
+            VStack(spacing: 18) {
+                Image(systemName: symbol).font(.system(size: 48, weight: .light))
+                    .frame(width: 62, height: 62)
+                    .accessibilityHidden(true)
+                Text(message).ipaFont(.subheadline)
+            }
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .overlay(alignment: .bottom) {
+                action().alignmentGuide(.bottom) { $0[.top] - 14 }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Align pushed collections with tab roots below the status bar.
+            .offset(y: -max(0, top - windowTop) / 2)
         }
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -247,6 +253,7 @@ struct IPAGetButton: View {
     let variant: IPAAppVariant
     var showsStatus = false
     var prominent = false
+    var alwaysFilled = false
     @ObservedObject private var activity = IPAActivityHistory.shared
     @ObservedObject private var installer = IPAInstallCoordinator.shared
     @AppStorage("IPAInstallMode") private var mode = "container"
@@ -273,9 +280,9 @@ struct IPAGetButton: View {
                     if !installed && activity.wasDownloaded(variant.app.bundleIdentifier) { Image(systemName: "icloud.and.arrow.down").ipaFont(.title3, weight: .semibold) }
                     else { ZStack {
                         Text(installed ? "Open" : "Get").opacity(opening ? 0 : 1)
-                        if opening { ProgressView().tint(prominent && filledButtons ? IPAAppearance.buttonForeground(accentHex) : IPAAppearance.accent(accentHex)).transition(.opacity) }
+                        if opening { ProgressView().tint((alwaysFilled || (prominent && filledButtons)) ? IPAAppearance.buttonForeground(accentHex) : IPAAppearance.accent(accentHex)).transition(.opacity) }
                     } }
-                }.buttonStyle(IPAPillStyle(prominent: prominent))
+                }.buttonStyle(IPAPillStyle(prominent: prominent, alwaysFilled: alwaysFilled))
                     .disabled(installed && installer.openingIdentifier != nil)
                     .contentTransition(.opacity)
                     .transition(IPAMotion.reveal(reduced: reduceMotion))
@@ -435,8 +442,8 @@ struct IPACategoryView: View {
                     Button("Search", systemImage: "magnifyingglass") { searching = true }
                     Picker("Sort", selection: $order) { Text("Library Order").tag("publisher"); Text("Name").tag("name"); Text("Developer").tag("developer") }
                         .pickerStyle(.inline).labelsHidden()
-                } label: { Image(systemName: "ellipsis.circle") }
-                    .tint(.primary).accessibilityLabel("Sort and search apps")
+                } label: { IPACollectionControlIcon(symbol: "line.3.horizontal.decrease") }
+                    .accessibilityLabel("Sort and search apps")
             } }
     }
 }
@@ -444,7 +451,6 @@ struct IPACategoryView: View {
 struct IPATodayView: View {
     @EnvironmentObject private var catalog: AltStoreSourcesViewModel
     @EnvironmentObject private var discovery: IPADiscovery
-    @ObservedObject private var libraryIndex = IPALibraryIndex.shared
     var body: some View {
         NavigationStack {
             TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -457,13 +463,10 @@ struct IPATodayView: View {
                         if let suggested = discovery.featured {
                             let reference = IPAStoreReference(suggested)
                             let source = discovery.sources[suggested.id]
-                            let entries = libraryIndex.entries(reference: reference, source: source)
                             IPAFeaturedLibrary(reference: reference, source: source).id(reference.id)
-                            if !entries.isEmpty {
-                                IPACategoryShelf(category: .init(name: "Apps Inside This Library", apps: entries), library: reference)
+                            if source == nil, !discovery.loading {
+                                Button("Reload This Library") { Task { await discovery.load(force: true) } }.frame(maxWidth: .infinity)
                             }
-                            else if discovery.loading || source?.apps.isEmpty != true { ProgressView(source == nil ? "Loading this library…" : "Preparing apps…").ipaFont(.subheadline).frame(maxWidth: .infinity).padding(.vertical) }
-                            else { Button("Reload This Library") { Task { await discovery.load(force: true) } }.frame(maxWidth: .infinity) }
                         } else if discovery.loading {
                             RoundedRectangle(cornerRadius: 26, style: .continuous).fill(IPAStyle.card)
                                 .frame(height: 430).overlay { ProgressView() }.accessibilityLabel("Loading today’s library")
@@ -577,11 +580,15 @@ struct IPAStoresView: View {
     @State private var failure: String?
     var body: some View {
         NavigationStack(path: $path) {
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         IPATabHeading("Stores")
-                            .padding(.trailing, 52).frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.trailing, 54).frame(maxWidth: .infinity, alignment: .leading)
+                            .id("stores-heading")
+                        IPACollectionSearchField(query: $query, presented: $searching, prompt: "Search Libraries")
+                            .padding(.horizontal, -8)
                         if !failedSources.isEmpty {
                             Button { refreshDetails = true } label: {
                                 Label(failedSources.count == 1 ? "1 store needs attention" : "\(failedSources.count) stores need attention",
@@ -609,8 +616,10 @@ struct IPAStoresView: View {
                 .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 40)
                 .frame(maxWidth: 760).frame(maxWidth: .infinity)
             }
+            .onChange(of: searching) { _, shown in if shown { proxy.scrollTo("stores-heading", anchor: .top) } }
+            .scrollDismissesKeyboard(.interactively)
             .overlay {
-                if catalog.sources.isEmpty {
+                if catalog.sources.isEmpty, !searching {
                     IPACollectionEmptyState(symbol: IPAStyle.storeSymbol, message: "Your added stores appear here.") {
                         Button("Add a Library") { suggestions = true }
                             .buttonStyle(IPAPillStyle(prominent: true, compact: true))
@@ -632,7 +641,6 @@ struct IPAStoresView: View {
                     IPACollectionSortSheet(selection: Binding(get: { selectedSort }, set: { sourceSort = $0.rawValue }),
                                            options: IPAStoreSort.allCases, title: \.title)
                 }
-                .modifier(IPACollectionSearch(query: $query, presented: $searching, prompt: "Search Libraries"))
                 .sheet(isPresented: $showingArrangement) {
                     IPAArrangeLibraries(items: sortedSources) { order in
                         if let data = try? JSONEncoder().encode(order) {
@@ -644,6 +652,7 @@ struct IPAStoresView: View {
                 .navigationDestination(isPresented: $suggestions) { IPASuggestionsView() }
                 .navigationDestination(for: IPAStoreReference.self) { IPAStorePage(reference: $0) }
                 .refreshable { await refreshLibraries() }
+            }
         }
         .sheet(isPresented: $refreshDetails) { IPALibraryRefreshDetails() }
         .sheet(isPresented: $adding) { IPAAddStoreSheet() }
@@ -722,15 +731,64 @@ struct IPACatalogSearchField: UIViewRepresentable {
             DispatchQueue.main.async { [weak bar] in bar?.searchTextField.becomeFirstResponder() }
         }
     }
-    final class Coordinator: NSObject, UISearchBarDelegate {
+    static func dismantleUIView(_ bar: UISearchBar, coordinator: Coordinator) {
+        coordinator.removeDismissTap()
+    }
+
+    final class Coordinator: NSObject, UISearchBarDelegate, UIGestureRecognizerDelegate {
         var text: Binding<String>
         var editing: Binding<Bool>
         var requestedFocus = false
-        init(text: Binding<String>, editing: Binding<Bool>) { self.text = text; self.editing = editing }
-        func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) { editing.wrappedValue = true }
-        func searchBarTextDidEndEditing(_ searchBar: UISearchBar) { editing.wrappedValue = false }
+        private weak var searchBar: UISearchBar?
+        private lazy var dismissTap: UITapGestureRecognizer = {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+            recognizer.cancelsTouchesInView = false
+            recognizer.delegate = self
+            return recognizer
+        }()
+
+        init(text: Binding<String>, editing: Binding<Bool>) {
+            self.text = text
+            self.editing = editing
+        }
+
+        func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
+            editing.wrappedValue = true
+            self.searchBar = searchBar
+            searchBar.window?.addGestureRecognizer(dismissTap)
+        }
+
+        func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
+            editing.wrappedValue = false
+            removeDismissTap()
+        }
+
         func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) { text.wrappedValue = searchText }
-        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) { searchBar.resignFirstResponder() }
+        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) { searchBar.searchTextField.resignFirstResponder() }
+
+        func removeDismissTap() {
+            dismissTap.view?.removeGestureRecognizer(dismissTap)
+            searchBar = nil
+        }
+
+        @objc private func dismissKeyboard() {
+            searchBar?.searchTextField.resignFirstResponder()
+        }
+
+        func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let field = searchBar?.searchTextField, let window = field.window,
+                  !field.convert(field.bounds, to: window).contains(touch.location(in: window)) else { return false }
+            var view = touch.view
+            while let current = view {
+                if current is UIControl || current is UISearchBar { return false }
+                view = current.superview
+            }
+            return true
+        }
+
+        func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
     }
 }
 
@@ -819,7 +877,6 @@ struct IPASearchView: View {
 struct IPAProductView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @ScaledMetric(relativeTo: .subheadline) private var minimumFactWidth: CGFloat = 96
     @ScaledMetric(relativeTo: .subheadline) private var factHeight: CGFloat = 84
     let entry: IPAAppEntry
@@ -827,6 +884,7 @@ struct IPAProductView: View {
     @State private var selectedVersionID: String?
     @State private var listing: IPAProductMetadata?
     @State private var compactHeader = false
+    @State private var failedHero: [URL]?
     @EnvironmentObject private var index: IPAAllAppsIndex
     private var currentEntry: IPAAppEntry { index.entry(identifier: entry.id) ?? entry }
     private var variant: IPAAppVariant { IPAProductSelection.variant(in: currentEntry, origin: entry.primary, selected: selectedVariantID) }
@@ -845,21 +903,29 @@ struct IPAProductView: View {
         } ?? screenshots.first
         return [app.headerURL, preferred].compactMap { $0 }
     }
+    private var hasHero: Bool { !heroCandidates.isEmpty && heroCandidates != failedHero }
+    private var storeRating: (score: Double, count: Int)? {
+        guard let score = listing?.rating, let count = listing?.ratingCount, count > 0 else { return nil }
+        return (score, count)
+    }
     private var moreByPublisher: [IPAAppEntry] { index.more(in: variant.store.id, excluding: entry.id) }
     private var recommendations: [IPAAppEntry] { index.similar(to: entry, excluding: moreByPublisher) }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                // Reserve the banner before supplemental metadata/artwork arrives.
-                // Its contents fade in without moving the app header below it.
-                IPAProductHero(urls: heroCandidates).padding(.horizontal, -20).padding(.bottom, 8)
+                if hasHero {
+                    IPAProductHero(urls: heroCandidates) { failedHero = heroCandidates }
+                        .padding(.horizontal, -20).padding(.bottom, 8)
+                }
                 HStack(alignment: .top, spacing: 16) {
                     IPARemoteImage(url: app.iconURL, pixels: 360, fallbackURLs: [listing?.icon].compactMap { $0 }, showsPlaceholder: false)
                         .frame(width: 118, height: 118).clipShape(RoundedRectangle(cornerRadius: 27, style: .continuous))
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(app.name).ipaFont(.title2, weight: .bold).lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2).fixedSize(horizontal: false, vertical: true)
-                        if let subtitle = app.subtitle ?? app.developerName { Text(subtitle).ipaFont(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
+                        if let subtitle = app.subtitle ?? app.developerName {
+                            Text(subtitle).ipaFont(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        }
                         Spacer(minLength: 8)
                         productActions
                     }.frame(minHeight: 118, alignment: .topLeading)
@@ -873,29 +939,13 @@ struct IPAProductView: View {
                     Divider()
                     informationStrip.padding(.vertical, 12)
                 }
-                if let notes = releaseNotes {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("What’s New").ipaFont(.title2, weight: .bold)
-                        HStack {
-                            Text("Version \(latestRelease?.version ?? "—")")
-                            Spacer()
-                            if let date = latestRelease?.releaseDate { Text(date, format: .relative(presentation: .numeric, unitsStyle: .abbreviated)).lineLimit(1) }
-                        }.ipaFont(.subheadline).foregroundStyle(.secondary)
-                        IPAExpandableText(text: notes, lines: 4).ipaFont(.subheadline)
-                    }.padding(.vertical, 20)
-                    Divider()
-                }
                 if !screenshots.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Preview").ipaFont(.title2, weight: .bold)
-                            .accessibilityAddTraits(.isHeader)
-                        IPAProductScreenshots(urls: Array(screenshots.prefix(12)))
-                    }
-                    .padding(.vertical, 20)
+                    IPAProductScreenshots(urls: Array(screenshots.prefix(12)))
+                        .accessibilityLabel("App screenshots")
+                        .padding(.vertical, 14)
                 }
-                if let description = app.description, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    if !screenshots.isEmpty { Divider() }
-                    IPAExpandableText(text: description, lines: 5).ipaFont(.subheadline).padding(.vertical, 20)
+                if let description = IPACatalogPresentation.displayValue(app.description) {
+                    IPAExpandableText(text: description, lines: 3).padding(.vertical, 14)
                 }
                 NavigationLink { IPAStoreAllAppsView(reference: variant.store, fallback: currentEntry) } label: {
                     HStack(spacing: 12) {
@@ -908,6 +958,15 @@ struct IPAProductView: View {
                         Image(systemName: "chevron.right").ipaFont(.footnote, weight: .semibold)
                     }.padding(.vertical, 14)
                 }.buttonStyle(IPAControlPressStyle(scale: 0.985)).foregroundStyle(.tint)
+                if let score = storeRating {
+                    Divider()
+                    ratingsSection(score: score.score, count: score.count)
+                }
+                if let notes = releaseNotes {
+                    Divider()
+                    whatsNew(notes)
+                }
+                Divider()
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Information").ipaFont(.title2, weight: .bold).padding(.bottom, 8)
                     if let developer = IPACatalogPresentation.displayValue(app.developerName) { information("Developer", developer) }
@@ -932,21 +991,19 @@ struct IPAProductView: View {
                     Text("This app needs JIT and a compatible launch setup. Check its publisher’s guide before installing.").ipaFont(.footnote).foregroundStyle(.secondary).padding(.vertical, 8)
                 }
                 if !moreByPublisher.isEmpty { IPACategoryShelf(category: .init(name: "From \(variant.store.name)", apps: moreByPublisher), library: variant.store).padding(.vertical, 20) }
-                if !recommendations.isEmpty { IPACategoryShelf(category: .init(name: "You Might Also Like", apps: recommendations)).padding(.vertical, 20) }
-            }.frame(maxWidth: 720, alignment: .leading).padding(.horizontal, 20).padding(.bottom, 24).frame(maxWidth: .infinity)
+                if !recommendations.isEmpty { IPACategoryShelf(category: .init(name: "You Might Also Like", apps: recommendations)).padding(.top, 20).padding(.bottom, 4) }
+            }.frame(maxWidth: 720, alignment: .leading).padding(.horizontal, 20).padding(.bottom, 4).frame(maxWidth: .infinity)
 
         }.scrollBounceBehavior(.always, axes: .vertical)
             .modifier(IPAProductScrollEdges())
             .background(IPAStyle.productCanvas)
-            .overlay(alignment: .top) {
-                if !compactHeader { statusBarBackdrop }
-            }
             .ipaNativePage()
             .coordinateSpace(name: "productScroll")
-            .ignoresSafeArea(.container, edges: .top)
+            .ignoresSafeArea(.container, edges: hasHero ? .top : [])
             .navigationTitle("").navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.regularMaterial, for: .navigationBar)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbarBackground(compactHeader ? .visible : .hidden, for: .navigationBar)
+            .toolbarColorScheme(hasHero && !compactHeader ? .dark : nil, for: .navigationBar)
             .toolbar { productToolbar }
             .onAppear { IPAActivityHistory.shared.viewed(entry) }
             .task(id: app.bundleIdentifier) {
@@ -955,22 +1012,40 @@ struct IPAProductView: View {
                 if !Task.isCancelled, app.bundleIdentifier == identifier { listing = value }
             }
     }
-    private var statusBarBackdrop: some View {
-        let fade = LinearGradient(stops: [
-            .init(color: .black, location: 0),
-            .init(color: .black, location: 0.42),
-            .init(color: .clear, location: 1)
-        ], startPoint: .top, endPoint: .bottom)
+    private func whatsNew(_ notes: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("What’s New").ipaFont(.title2, weight: .bold).accessibilityAddTraits(.isHeader)
+            HStack {
+                Text("Version \(latestRelease?.version ?? "—")")
+                Spacer()
+                if let date = latestRelease?.releaseDate {
+                    Text(date, format: .relative(presentation: .numeric, unitsStyle: .abbreviated)).lineLimit(1)
+                }
+            }.ipaFont(.subheadline).foregroundStyle(.secondary)
+            IPAExpandableText(text: notes, lines: 3)
+        }.padding(.vertical, 18)
+    }
 
-        return Rectangle()
-            .fill(.ultraThinMaterial)
-            .overlay {
-                if reduceTransparency { IPAStyle.productCanvas }
+    private func ratingsSection(score: Double, count: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Ratings & Reviews").ipaFont(.title2, weight: .bold).accessibilityAddTraits(.isHeader)
+            HStack(alignment: .center, spacing: 18) {
+                Text(score, format: .number.precision(.fractionLength(1)))
+                    .ipaFont(.largeTitle, weight: .bold).monospacedDigit()
+                VStack(alignment: .leading, spacing: 4) {
+                    IPARatingStars(rating: score)
+                    Text(count.formatted() + (count == 1 ? " rating" : " ratings"))
+                        .ipaFont(.subheadline).foregroundStyle(.secondary)
+                }
+            }.accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(score.formatted(.number.precision(.fractionLength(1)))) out of 5, \(count.formatted()) ratings")
+            if let url = listing?.listing {
+                Link(destination: url) {
+                    Label("Read reviews on the App Store", systemImage: "arrow.up.right")
+                        .ipaFont(.subheadline, weight: .semibold)
+                }
             }
-            .mask(fade)
-            .frame(height: 82)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        }.padding(.vertical, 18)
     }
 
     private var productActions: some View {
@@ -984,15 +1059,17 @@ struct IPAProductView: View {
         if compactHeader {
             if #available(iOS 26.0, *) {
                 ToolbarItem(placement: .topBarTrailing) {
-                    IPAGetButton(variant: installVariant, prominent: true)
+                    IPAGetButton(variant: installVariant, alwaysFilled: true)
                 }.sharedBackgroundVisibility(.hidden)
             } else {
-                ToolbarItem(placement: .topBarTrailing) { IPAGetButton(variant: installVariant, prominent: true) }
+                ToolbarItem(placement: .topBarTrailing) { IPAGetButton(variant: installVariant, alwaysFilled: true) }
             }
         } else {
             ToolbarItem(placement: .topBarTrailing) {
-                ShareLink(item: app.latestVersion?.downloadURL ?? variant.store.url) { Image(systemName: "square.and.arrow.up") }
-                    .tint(.primary).accessibilityLabel("Share app")
+                ShareLink(item: app.latestVersion?.downloadURL ?? variant.store.url) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 19, weight: .medium)).frame(minWidth: 44, minHeight: 44)
+                }.tint(.primary).accessibilityLabel("Share app")
             }
         }
     }
@@ -1035,11 +1112,15 @@ struct IPAProductView: View {
         let value: String
         var symbol: String?
         var caption: String?
+        var rating: Double?
         var id: String { title }
     }
     private var facts: [Fact] {
         var values: [Fact] = []
-        if let rating = listing?.rating, let count = listing?.ratingCount, count > 0 { values.append(.init(title: "\(count.formatted(.number.notation(.compactName))) RATINGS", value: String(format: "%.1f", rating), symbol: "star.fill")) }
+        if let rating = storeRating {
+            values.append(.init(title: "\(rating.count.formatted(.number.notation(.compactName))) RATINGS",
+                                value: rating.score.formatted(.number.precision(.fractionLength(1))), rating: rating.score))
+        }
         if let age = IPACatalogPresentation.displayValue(listing?.ageRating) { values.append(.init(title: "AGE RATING", value: age, caption: "Years Old")) }
         if let developer = IPACatalogPresentation.displayValue(app.developerName) { values.append(.init(title: "DEVELOPER", value: developer, symbol: "person.crop.square")) }
         if let version = IPACatalogPresentation.displayValue(app.latestVersion?.version) { values.append(.init(title: "VERSION", value: version, symbol: "app.badge")) }
@@ -1063,7 +1144,9 @@ struct IPAProductView: View {
                             }
                             Text(fact.value).ipaFont(isDeveloper ? .caption : .title3, weight: .semibold)
                                 .lineLimit(isDeveloper ? 2 : 1).minimumScaleFactor(0.8)
-                            if !isDeveloper, let symbol = fact.symbol {
+                            if let rating = fact.rating {
+                                IPARatingStars(rating: rating, size: 11)
+                            } else if !isDeveloper, let symbol = fact.symbol {
                                 Image(systemName: symbol).ipaFont(.caption).accessibilityHidden(true)
                             }
                             if let caption = fact.caption { Text(caption).ipaFont(.caption).lineLimit(1) }
@@ -1071,9 +1154,6 @@ struct IPAProductView: View {
                         .foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .padding(.horizontal, 6)
                         .frame(width: width, height: factHeight)
-                        .overlay(alignment: .trailing) {
-                            if fact.id != columns.last?.id { Divider().frame(height: 44) }
-                        }
                         .accessibilityElement(children: .combine)
                     }
                 }
@@ -1092,6 +1172,22 @@ struct IPAProductView: View {
     }
 }
 
+private struct IPARatingStars: View {
+    let rating: Double
+    var size: CGFloat = 14
+
+    var body: some View {
+        let halves = Int((min(5, max(0, rating)) * 2).rounded())
+        HStack(spacing: 2) {
+            ForEach(0..<5) { index in
+                let fill = halves - 2 * index
+                Image(systemName: fill >= 2 ? "star.fill" : fill == 1 ? "star.leadinghalf.filled" : "star")
+                    .font(.system(size: size, weight: .semibold))
+            }
+        }.accessibilityHidden(true)
+    }
+}
+
 // Keep download progress updates inside the controls rather than rebuilding the
 // entire product description, artwork and recommendation shelves on every tick.
 private struct IPAProductActions<VersionMenu: View>: View {
@@ -1107,7 +1203,7 @@ private struct IPAProductActions<VersionMenu: View>: View {
         } else { HStack(spacing: 8) { buttons } }
     }
     @ViewBuilder private var buttons: some View {
-        IPAGetButton(variant: variant, showsStatus: true, prominent: true)
+        IPAGetButton(variant: variant, showsStatus: true, alwaysFilled: true)
             .fixedSize(horizontal: true, vertical: false).layoutPriority(1)
         if showsVersions, installer.job(for: variant, independent: mode == "independent") == nil { versionMenu() }
     }
@@ -1123,14 +1219,42 @@ private struct IPAProductScrollEdges: ViewModifier {
 
 private struct IPAProductHero: View {
     let urls: [URL]
+    let onFailure: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
     var body: some View {
         GeometryReader { geometry in
-            let pull = max(0, geometry.frame(in: .named("productScroll")).minY)
-            IPARemoteImage(url: urls.first, pixels: 1200, fallbackURLs: Array(urls.dropFirst()), showsPlaceholder: false)
-                .frame(width: geometry.size.width, height: geometry.size.height + pull).clipped()
-                .overlay { LinearGradient(stops: [.init(color: .clear, location: 0.42), .init(color: IPAStyle.productCanvas.opacity(0.4), location: 0.75), .init(color: IPAStyle.productCanvas, location: 1)], startPoint: .top, endPoint: .bottom) }
+            let pull = reduceMotion ? 0 : max(0, geometry.frame(in: .named("productScroll")).minY)
+            let size = CGSize(width: geometry.size.width, height: geometry.size.height + pull)
+            artwork(size: size, onFailure: onFailure)
+                .overlay(alignment: .top) {
+                    if !reduceTransparency {
+                        artwork(size: size)
+                            .blur(radius: 9, opaque: true)
+                            .mask(alignment: .top) {
+                                LinearGradient(stops: [
+                                    .init(color: .black, location: 0),
+                                    .init(color: .black.opacity(0.85), location: 0.48),
+                                    .init(color: .clear, location: 1)
+                                ], startPoint: .top, endPoint: .bottom)
+                                .frame(height: 52)
+                            }
+                    }
+                }
+                .overlay(alignment: .top) {
+                    LinearGradient(colors: [.black.opacity(reduceTransparency ? 0.64 : 0.28), .clear],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: 64)
+                }
                 .offset(y: -pull)
         }.aspectRatio(16 / 9, contentMode: .fit).accessibilityHidden(true)
+    }
+
+    private func artwork(size: CGSize, onFailure: (() -> Void)? = nil) -> some View {
+        IPARemoteImage(url: urls.first, pixels: 1200, fallbackURLs: Array(urls.dropFirst()),
+                       showsPlaceholder: false, onFailure: onFailure)
+            .frame(width: size.width, height: size.height).clipped()
     }
 }
 
@@ -1225,9 +1349,9 @@ struct IPASettingsView: View {
                     IPASettingsGroup(title: nil) {
                         Link(destination: URL(string: "https://discord.gg/EQ77PXQQgt")!) { IPASettingsRow("Community", subtitle: "Help, ideas and updates", symbol: "bubble.left.and.bubble.right.fill", color: .mint) }
                         IPASettingsDivider()
-                        NavigationLink { IPAHowItWorksView() } label: { IPASettingsRow("How iPAStore Works", symbol: "book.closed.fill", color: .purple) }
+                        NavigationLink { IPAHowItWorksView() } label: { IPASettingsRow("How iPAStore Works", subtitle: "Installing, signing and opening apps", symbol: "book.closed.fill", color: .purple) }
                         IPASettingsDivider()
-                        Button { showWelcome = true } label: { IPASettingsRow("Open Welcome", symbol: "hand.wave.fill", color: .indigo) }
+                        Button { showWelcome = true } label: { IPASettingsRow("Open Welcome", subtitle: "Revisit the setup guide", symbol: "hand.wave.fill", color: .indigo) }
                     }
                     IPASettingsGroup(title: nil) {
                         NavigationLink { IPAPrivacyView() } label: { IPASettingsRow("Privacy & Compatibility", symbol: "hand.raised.fill", color: .cyan) }
