@@ -131,7 +131,7 @@ struct IPACertificateSetupView: View {
                 }
                 if let finish {
                     Button(state.standaloneCertificateReady ? "Start Using iPAStore" : "Finish Later", action: finish)
-                        .buttonStyle(IPAPillStyle(prominent: true))
+                        .buttonStyle(IPAPillStyle(prominent: true, compact: true))
                         .frame(maxWidth: .infinity)
                 }
             }.padding(24).frame(maxWidth: 620).frame(maxWidth: .infinity)
@@ -184,7 +184,7 @@ struct IPASetupHeading: View {
     let subtitle: String
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: symbol).font(.system(size: 36, weight: .light)).foregroundStyle(.tint).padding(.top, 12)
+            Image(systemName: symbol).font(.system(size: 46, weight: .light)).foregroundStyle(.tint)
             Text(title).ipaFont(.largeTitle, weight: .bold)
             Text(subtitle).ipaFont(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
@@ -288,7 +288,6 @@ struct IPASigningHero: View {
 }
 
 struct IPASigningOptionsView: View {
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var signing = IPASigningState()
     @AppStorage("IPAInstallMode") private var mode = "container"
     private var available: Bool { mode == "independent" && signing.standaloneCertificateReady }
@@ -306,7 +305,6 @@ struct IPASigningOptionsView: View {
                 Section {
                     Label("Full Certificate Required", systemImage: "lock.fill").font(.headline)
                     Text("These options apply to separate iPhone apps. Choose Certificate in Settings and add your .p12 plus a valid matching provisioning profile to unlock them.").foregroundStyle(.secondary)
-                    Button("Go to Settings") { dismiss(); DataManager.shared.model.selectedTab = .settings }
                 }
             }
             Group {

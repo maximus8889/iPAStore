@@ -19,7 +19,7 @@ struct LCTabView: View {
     @Environment(\.scenePhase) var scenePhase
     @StateObject var downloadHelper = DownloadHelper()
 
-    @StateObject private var catalog = AltStoreSourcesViewModel()
+    @StateObject private var catalog = AltStoreSourcesViewModel(refreshAllOnLaunch: true)
     @AppStorage("IPAAppearance") private var appearance = "system"
 
     let pub = NotificationCenter.default.publisher(for: UIScene.didDisconnectNotification)

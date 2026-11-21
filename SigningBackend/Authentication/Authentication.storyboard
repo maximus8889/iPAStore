@@ -202,7 +202,7 @@
                                             <constraint firstAttribute="bottomMargin" secondItem="DBk-rT-ZE8" secondAttribute="bottom" id="HgY-oY-8KM"/>
                                             <constraint firstAttribute="trailingMargin" secondItem="DBk-rT-ZE8" secondAttribute="trailing" id="VCf-bW-2K4"/>
                                             <constraint firstItem="YmX-7v-pxh" firstAttribute="top" secondItem="2wp-qG-f0Z" secondAttribute="top" constant="6" id="iUr-Nd-tkt"/>
-                                            <constraint firstItem="DBk-rT-ZE8" firstAttribute="top" relation="greaterThanOrEqual" secondItem="YmX-7v-pxh" secondAttribute="bottom" constant="8" symbolic="YES" id="zTU-eY-DWd"/>
+                                            <constraint firstItem="DBk-rT-ZE8" firstAttribute="top" secondItem="YmX-7v-pxh" secondAttribute="bottom" constant="20" id="zTU-eY-DWd"/>
                                         </constraints>
                                     </view>
                                 </subviews>

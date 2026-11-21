@@ -237,7 +237,7 @@ final class AltStoreSourcesViewModel: ObservableObject {
     private let loader: @Sendable (URL) async throws -> (AltStoreSource, Data)
     
     init(defaults: UserDefaults = .standard, cacheDirectory: URL? = nil,
-         automaticallyRefresh: Bool = true,
+         automaticallyRefresh: Bool = true, refreshAllOnLaunch: Bool = false,
          loader: @escaping @Sendable (URL) async throws -> (AltStoreSource, Data) = { try await IPACatalogDownloads.shared.load(from: $0) }) {
         self.defaults = defaults
         self.customCacheDirectory = cacheDirectory
@@ -246,7 +246,7 @@ final class AltStoreSourcesViewModel: ObservableObject {
         guard automaticallyRefresh else { return }
         startupTask = Task {
             await restoreCachedSources()
-            await refreshAllSources(onlyStale: true)
+            await refreshAllSources(onlyStale: !refreshAllOnLaunch)
             startupTask = nil
         }
     }

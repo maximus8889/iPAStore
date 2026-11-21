@@ -3,7 +3,7 @@ import SwiftUI
 
 @main struct IPAStorePreviewApp: App {
     @StateObject private var model = DataManager.shared.model
-    @StateObject private var catalog = AltStoreSourcesViewModel()
+    @StateObject private var catalog = AltStoreSourcesViewModel(refreshAllOnLaunch: true)
     @AppStorage("IPAAppearance") private var appearance = "system"
     init() {
         let tabs: [String: LCTabIdentifier] = ["today": .today, "stores": .sources, "apps": .apps, "search": .search, "settings": .settings]
@@ -55,9 +55,9 @@ struct PreviewAppsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     IPATabHeading("Apps")
                         .padding(.trailing, 52).frame(maxWidth: .infinity, alignment: .leading)
-                    IPACollectionEmptyState(symbol: IPAStyle.appsSymbol, message: "Your downloaded apps appear here.") {}
                 }.padding(.horizontal, 20).padding(.top, 8).frame(maxWidth: 760).frame(maxWidth: .infinity)
             }
+            .overlay { IPACollectionEmptyState(symbol: IPAStyle.appsSymbol, message: "Your downloaded apps appear here.") {} }
             .background(IPAStyle.canvas).toolbar(.hidden, for: .navigationBar)
             .ipaCollectionToolbar {
                 IPAAppActions(add: { installRequested = true }, refresh: nil,

@@ -127,30 +127,20 @@ struct LCTweakFolderView : View {
                 }.onDelete { indexSet in
                     deleteTweakItem(indexSet: indexSet)
                 }
-            } footer: {
-                if isRoot {
-                    Text("lc.tweakView.globalFolderDesc".loc)
-                        .foregroundStyle(.gray)
-                        .font(.system(size: 12))
-                } else {
-                    Text("lc.tweakView.appFolderDesc".loc)
-                        .foregroundStyle(.gray)
-                        .font(.system(size: 12))
-                }
             }
         }
-        .navigationTitle(isRoot ? "lc.tabView.tweaks".loc : baseUrl.lastPathComponent)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if !isTweakSigning && LCSharedUtils.certificatePassword() != nil {
-                    Button {
-                        Task { await signAllTweaks() }
-                    } label: {
-                        Label("sign".loc, systemImage: "signature")
-                    }
-                }
-
+        .scrollContentBackground(.hidden)
+        .overlay {
+            if tweakItems.isEmpty {
+                IPACollectionEmptyState(symbol: "slider.horizontal.3", message: "Your tweaks appear here.") {}
+                    .allowsHitTesting(false)
             }
+        }
+        .background(IPAStyle.canvas)
+        .navigationTitle(isRoot ? "Tweaks" : baseUrl.lastPathComponent)
+        .navigationBarTitleDisplayMode(.inline)
+        .ipaNativePage()
+        .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if !isTweakSigning {
                     Menu {
@@ -172,9 +162,12 @@ struct LCTweakFolderView : View {
                         } label: {
                             Label("lc.tweakView.newFolder".loc, systemImage: "folder.badge.plus")
                         }
+                        if LCSharedUtils.certificatePassword() != nil, !tweakItems.isEmpty {
+                            Button("Sign All Tweaks", systemImage: "signature") { Task { await signAllTweaks() } }
+                        }
                     } label: {
-                        Label("add", systemImage: "plus")
-                    }
+                        Image(systemName: "plus")
+                    }.tint(.primary).accessibilityLabel("Add Tweak")
                 } else {
                     ProgressView().progressViewStyle(.circular)
                 }
@@ -393,10 +386,6 @@ struct LCTweakFolderView : View {
 
 struct LCTweaksView: View {
     var body: some View {
-        NavigationView {
-            LCTweakFolderView(baseUrl: LCPath.tweakPath, isRoot: true)
-        }
-        .navigationViewStyle(StackNavigationViewStyle())
-
+        LCTweakFolderView(baseUrl: LCPath.tweakPath, isRoot: true)
     }
 }

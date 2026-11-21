@@ -256,13 +256,16 @@ struct IPASuggestionCards: View {
     var body: some View {
         LazyVStack(spacing: 16) {
             ForEach(suggestions) { item in
-                IPALibraryCard(reference: IPAStoreReference(item), source: discovery.sources[item.id], subtitle: item.summary, allowsAdding: true)
+                let source = discovery.sources[item.id]
+                let count = source?.apps.count ?? 0
+                IPALibraryCard(reference: IPAStoreReference(item), source: source,
+                               subtitle: count == 1 ? "1 app" : "\(count) apps", allowsAdding: true)
             }
             if suggestions.isEmpty {
                 if discovery.loading { ProgressView("Finding Libraries…").frame(maxWidth: .infinity).padding(.vertical, 32) }
-                else { IPAEmptyState(title: "No Libraries Available", subtitle: query.isEmpty ? "Pull down to check again when you’re connected." : "Try a different search.", symbol: IPAStyle.storeSymbol) }
+                else { IPAEmptyState(title: "No Libraries Available", subtitle: query.isEmpty ? "Available libraries will appear here." : "Try a different search.", symbol: IPAStyle.storeSymbol) }
             }
-        }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)
+        }.padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 24)
     }
 }
 
@@ -272,27 +275,25 @@ extension View {
     }
 }
 
-// Discovery is a temporary workspace. Library and app pages inside it retain
-// UIKit's native push/back transitions, including the interactive back swipe.
-struct IPASuggestionsSheet: View {
-    var body: some View {
-        NavigationStack {
-            IPASuggestionsView()
-                .navigationDestination(for: IPAStoreReference.self) { IPAStorePage(reference: $0) }
-        }.ipaTallSheet().modifier(IPATheme())
-    }
-}
-
 struct IPASuggestionsView: View {
-    @EnvironmentObject private var discovery: IPADiscovery
+    @State private var adding = false
+
     var body: some View {
         ScrollView { IPASuggestionCards() }
             .background(IPAStyle.canvas)
-            .toolbar(.hidden, for: .navigationBar)
-            .task { await discovery.load() }
-            .refreshable { await discovery.load(force: true) }
+            .navigationTitle("Suggestions")
+            .navigationBarTitleDisplayMode(.inline)
+            .ipaNativePage()
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { adding = true } label: { Image(systemName: "plus") }
+                        .tint(.primary).accessibilityLabel("Add Store")
+                }
+            }
+            .sheet(isPresented: $adding) { IPAAddStoreSheet() }
     }
 }
+
 struct IPAStoreAllAppsView: View {
     let reference: IPAStoreReference
     var fallback: IPAAppEntry? = nil
@@ -348,14 +349,15 @@ struct IPAStorePage: View {
                             Text("WEB").ipaFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
                             Image(systemName: "globe").ipaFont(.title3)
                             Text("Open").ipaFont(.caption).lineLimit(1)
-                        }.frame(maxWidth: .infinity)
+                        }.frame(maxWidth: .infinity, minHeight: metadataHeight)
+                            .background(IPAStyle.card, in: RoundedRectangle(cornerRadius: 13))
                     }
-                    Divider().frame(height: 34)
                     IPAWebLink(destination: reference.publisher ?? source?.website ?? reference.url) {
                         VStack(alignment: .center, spacing: 4) {
                             Text("DEVELOPER").ipaFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
                             Text(reference.suggestion?.developer ?? reference.publisher?.host ?? source?.website?.host ?? reference.name).ipaFont(.caption).lineLimit(3).truncationMode(.tail).multilineTextAlignment(.center)
-                        }.frame(maxWidth: .infinity)
+                        }.frame(maxWidth: .infinity, minHeight: metadataHeight)
+                            .background(IPAStyle.card, in: RoundedRectangle(cornerRadius: 13))
                     }
                 }.frame(height: metadataHeight).clipped()
                 Divider()
@@ -387,6 +389,7 @@ struct IPAStorePage: View {
         }.background(IPAStyle.productCanvas).navigationBarTitleDisplayMode(.inline).ipaNativePage()
             .task {
                 requested = true
+                guard source == nil else { return }
                 if let stored = catalog.sources.first(where: { IPAStoreDirectory.canonical($0.url) == reference.id }) { await catalog.refreshSource(stored, onlyStale: true) }
                 else { await discovery.reload(reference, onlyStale: true) }
             }

@@ -17,7 +17,7 @@ enum IPAStyle {
     })
     static let card = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .secondarySystemGroupedBackground : .white })
     static let storeSymbol = "rectangle.stack"
-    static let appsSymbol = "square.grid.2x2.fill"
+    static let appsSymbol = "square.grid.2x2"
     static let inset: CGFloat = 20
 }
 
@@ -48,17 +48,10 @@ struct IPARootTabs: View {
     @AppStorage("IPADidSeeWelcome") private var didSeeWelcome = false
     @State private var showWelcome = false
     @State private var checkedWelcome = false
-    @Environment(\.scenePhase) private var scenePhase
     #if !IPASTORE_PREVIEW
     @ObservedObject private var guestSession = IPAAppSession.shared
     #endif
-    private var refreshesEnabled: Bool {
-        #if IPASTORE_PREVIEW
-        scenePhase == .active
-        #else
-        scenePhase == .active && guestSession.active == nil
-        #endif
-    }
+    @State private var refreshedAtLaunch = false
     init() {
         IPAAppearance.registerFonts()
         UINavigationBar.appearance().tintColor = .label
@@ -96,18 +89,10 @@ struct IPARootTabs: View {
                     index.rebuild(subscribed: catalog.sources, discovered: discovery.sources)
                 }
             }
-            .task(id: refreshesEnabled) {
-                guard refreshesEnabled else { return }
-                async let subscriptions: Void = catalog.refreshForActivation()
-                async let suggestions: Void = discovery.load()
-                _ = await (subscriptions, suggestions)
-                while !Task.isCancelled {
-                    do { try await Task.sleep(nanoseconds: 60_000_000_000); try Task.checkCancellation() }
-                    catch { return }
-                    async let subscriptions: Void = catalog.refreshAllSources(onlyStale: true)
-                    async let suggestions: Void = discovery.load()
-                    _ = await (subscriptions, suggestions)
-                }
+            .task {
+                guard !refreshedAtLaunch else { return }
+                refreshedAtLaunch = true
+                await discovery.load(force: true)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
                 Task { await IPAImagePipeline.shared.trimMemory() }
@@ -242,7 +227,6 @@ struct IPACollectionEmptyState<Action: View>: View {
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .padding(.top, 90)
     }
 }
 
@@ -267,6 +251,7 @@ struct IPAGetButton: View {
     @ObservedObject private var installer = IPAInstallCoordinator.shared
     @AppStorage("IPAInstallMode") private var mode = "container"
     @AppStorage("IPAAccentHex") private var accentHex = "systemBlue"
+    @AppStorage("IPAFilledButtons") private var filledButtons = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var installedIdentifier: String { installer.installedIdentifier(for: variant) }
     private var installed: Bool { installer.isInstalled(installedIdentifier) }
@@ -288,7 +273,7 @@ struct IPAGetButton: View {
                     if !installed && activity.wasDownloaded(variant.app.bundleIdentifier) { Image(systemName: "icloud.and.arrow.down").ipaFont(.title3, weight: .semibold) }
                     else { ZStack {
                         Text(installed ? "Open" : "Get").opacity(opening ? 0 : 1)
-                        if opening { ProgressView().tint(prominent ? IPAAppearance.buttonForeground(accentHex) : IPAAppearance.accent(accentHex)).transition(.opacity) }
+                        if opening { ProgressView().tint(prominent && filledButtons ? IPAAppearance.buttonForeground(accentHex) : IPAAppearance.accent(accentHex)).transition(.opacity) }
                     } }
                 }.buttonStyle(IPAPillStyle(prominent: prominent))
                     .disabled(installed && installer.openingIdentifier != nil)
@@ -488,7 +473,7 @@ struct IPATodayView: View {
                     .task(id: Calendar.current.startOfDay(for: context.date)) { discovery.updateFeatured(on: context.date) }
             }.navigationTitle("").navigationBarTitleDisplayMode(.inline)
                 .toolbar(.hidden, for: .navigationBar)
-                .task { await discovery.load() }.refreshable {
+                .refreshable {
                     async let subscriptions: Void = catalog.refreshAllSources()
                     async let suggestions: Void = discovery.load(force: true)
                     _ = await (subscriptions, suggestions)
@@ -562,6 +547,7 @@ struct IPAFeaturedLibrary: View {
 
 struct IPAStoresView: View {
     @EnvironmentObject private var catalog: AltStoreSourcesViewModel
+    @EnvironmentObject private var discovery: IPADiscovery
     @EnvironmentObject private var model: SharedModel
     @State private var path = NavigationPath()
     @State private var suggestions = false
@@ -606,13 +592,6 @@ struct IPAStoresView: View {
                                 .ipaFont(.subheadline).foregroundStyle(.secondary)
                         }
                     }
-                    if catalog.sources.isEmpty {
-                        IPACollectionEmptyState(symbol: IPAStyle.storeSymbol, message: "Your added stores appear here.") {
-                            Button { suggestions = true } label: {
-                                Text("Add a Library").frame(minHeight: 44)
-                            }.buttonStyle(IPAPillStyle(prominent: true))
-                        }
-                    }
                     if !catalog.sources.isEmpty && !searching {
                         IPAArrangeCollectionButton("Arrange Stores") { showingArrangement = true }
                     }
@@ -629,13 +608,22 @@ struct IPAStoresView: View {
                 }
                 .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 40)
                 .frame(maxWidth: 760).frame(maxWidth: .infinity)
-            }.background(IPAStyle.canvas).navigationTitle("").navigationBarTitleDisplayMode(.inline)
+            }
+            .overlay {
+                if catalog.sources.isEmpty {
+                    IPACollectionEmptyState(symbol: IPAStyle.storeSymbol, message: "Your added stores appear here.") {
+                        Button("Add a Library") { suggestions = true }
+                            .buttonStyle(IPAPillStyle(prominent: true, compact: true))
+                    }
+                }
+            }
+            .background(IPAStyle.canvas).navigationTitle("").navigationBarTitleDisplayMode(.inline)
                 .toolbar(.hidden, for: .navigationBar)
                 .ipaCollectionToolbar {
                     IPACollectionActions(title: "Store actions") {
                         Button("Add", systemImage: "plus") { adding = true }
                         Button("Suggestions", systemImage: "sparkles") { suggestions = true }
-                        Button("Refresh", systemImage: "arrow.clockwise") { Task { await catalog.refreshAllSources() } }
+                        Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshLibraries() } }
                         Button("Search", systemImage: "magnifyingglass") { searching = true }
                         Button("Sort", systemImage: "line.3.horizontal.decrease") { sorting = true }
                     }
@@ -653,9 +641,9 @@ struct IPAStoresView: View {
                         }
                     }
                 }
-                .sheet(isPresented: $suggestions) { IPASuggestionsSheet() }
+                .navigationDestination(isPresented: $suggestions) { IPASuggestionsView() }
                 .navigationDestination(for: IPAStoreReference.self) { IPAStorePage(reference: $0) }
-                .refreshable { await catalog.refreshAllSources() }
+                .refreshable { await refreshLibraries() }
         }
         .sheet(isPresented: $refreshDetails) { IPALibraryRefreshDetails() }
         .sheet(isPresented: $adding) { IPAAddStoreSheet() }
@@ -669,6 +657,13 @@ struct IPAStoresView: View {
             Task { failure = await catalog.addSource(from: address) }
         }
     }
+
+    private func refreshLibraries() async {
+        async let stored: Void = catalog.refreshAllSources()
+        async let suggested: Void = discovery.load(force: true)
+        _ = await (stored, suggested)
+    }
+
 }
 
 private struct IPALibraryRefreshDetails: View {
@@ -698,8 +693,7 @@ private struct IPALibraryRefreshDetails: View {
 
 // Keep the native search field inside the Search page. A navigation-owned
 // UISearchController can retain its native back row over a custom product page.
-// This uses UISearchBar's normal keyboard, clear button and accessibility without
-// installing a search controller on the navigation stack or clearing the query.
+// The adjacent button dismisses the keyboard while keeping the current query.
 struct IPACatalogSearchField: UIViewRepresentable {
     @Binding var text: String
     @Binding var editing: Bool
@@ -715,6 +709,7 @@ struct IPACatalogSearchField: UIViewRepresentable {
         bar.returnKeyType = .search
         bar.searchTextField.autocapitalizationType = .none
         bar.searchTextField.autocorrectionType = .no
+        bar.searchTextField.clearButtonMode = .never
         bar.searchTextField.accessibilityLabel = prompt
         bar.delegate = context.coordinator
         return bar
@@ -781,9 +776,8 @@ struct IPASearchView: View {
                     } header: {
                         HStack(spacing: 6) {
                             IPACatalogSearchField(text: $query, editing: $editingSearch).frame(height: 52)
-                            if editingSearch || !query.isEmpty {
-                                IPACloseSearchButton {
-                                    query = ""
+                            if editingSearch {
+                                IPACloseSearchButton(label: "Dismiss keyboard") {
                                     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                                 }
                             }
@@ -812,7 +806,6 @@ struct IPASearchView: View {
                 .onReceive(NotificationCenter.default.publisher(for: .ipaSearchTabReselected)) { _ in
                     withAnimation(IPAMotion.state(reduced: reduceMotion)) { proxy.scrollTo("ipa-search-top", anchor: .top) }
                 }
-                .task { await discovery.load() }
                 .refreshable {
                     async let subscriptions: Void = catalog.refreshAllSources()
                     async let suggestions: Void = discovery.load(force: true)
@@ -827,8 +820,8 @@ struct IPAProductView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @ScaledMetric(relativeTo: .subheadline) private var factWidth: CGFloat = 124
-    @ScaledMetric(relativeTo: .subheadline) private var factHeight: CGFloat = 90
+    @ScaledMetric(relativeTo: .subheadline) private var minimumFactWidth: CGFloat = 96
+    @ScaledMetric(relativeTo: .subheadline) private var factHeight: CGFloat = 84
     let entry: IPAAppEntry
     @State private var selectedVariantID: String?
     @State private var selectedVersionID: String?
@@ -893,7 +886,12 @@ struct IPAProductView: View {
                     Divider()
                 }
                 if !screenshots.isEmpty {
-                    IPAProductScreenshots(urls: Array(screenshots.prefix(12))).padding(.vertical, 20)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Preview").ipaFont(.title2, weight: .bold)
+                            .accessibilityAddTraits(.isHeader)
+                        IPAProductScreenshots(urls: Array(screenshots.prefix(12)))
+                    }
+                    .padding(.vertical, 20)
                 }
                 if let description = app.description, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     if !screenshots.isEmpty { Divider() }
@@ -937,7 +935,8 @@ struct IPAProductView: View {
                 if !recommendations.isEmpty { IPACategoryShelf(category: .init(name: "You Might Also Like", apps: recommendations)).padding(.vertical, 20) }
             }.frame(maxWidth: 720, alignment: .leading).padding(.horizontal, 20).padding(.bottom, 24).frame(maxWidth: .infinity)
 
-        }.modifier(IPAProductScrollEdges())
+        }.scrollBounceBehavior(.always, axes: .vertical)
+            .modifier(IPAProductScrollEdges())
             .background(IPAStyle.productCanvas)
             .overlay(alignment: .top) {
                 if !compactHeader { statusBarBackdrop }
@@ -959,17 +958,17 @@ struct IPAProductView: View {
     private var statusBarBackdrop: some View {
         let fade = LinearGradient(stops: [
             .init(color: .black, location: 0),
-            .init(color: .black, location: 0.55),
+            .init(color: .black, location: 0.42),
             .init(color: .clear, location: 1)
         ], startPoint: .top, endPoint: .bottom)
 
         return Rectangle()
-            .fill(.regularMaterial)
+            .fill(.ultraThinMaterial)
             .overlay {
-                IPAStyle.productCanvas.opacity(reduceTransparency ? 1 : 0.72)
+                if reduceTransparency { IPAStyle.productCanvas }
             }
             .mask(fade)
-            .frame(height: 104)
+            .frame(height: 82)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
@@ -1049,37 +1048,42 @@ struct IPAProductView: View {
         return values
     }
     private var informationStrip: some View {
-        ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: 10) {
-                ForEach(facts) { fact in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(fact.title).ipaFont(.caption2, weight: .semibold)
-                            .foregroundStyle(.secondary).lineLimit(2)
-                        HStack(alignment: .top, spacing: 6) {
-                            if let symbol = fact.symbol {
-                                Image(systemName: symbol).ipaFont(.caption)
-                                    .foregroundStyle(.tint).accessibilityHidden(true)
+        GeometryReader { geometry in
+            let columns = facts
+            let width = max(minimumFactWidth, geometry.size.width / CGFloat(max(1, min(4, columns.count))))
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(columns) { fact in
+                        let isDeveloper = fact.title == "DEVELOPER"
+                        VStack(spacing: 5) {
+                            Text(fact.title).ipaFont(.caption2, weight: .medium)
+                                .lineLimit(1).minimumScaleFactor(0.8)
+                            if isDeveloper, let symbol = fact.symbol {
+                                Image(systemName: symbol).ipaFont(.title2).accessibilityHidden(true)
                             }
-                            Text(fact.value).ipaFont(.subheadline, weight: .semibold)
-                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            Text(fact.value).ipaFont(isDeveloper ? .caption : .title3, weight: .semibold)
+                                .lineLimit(isDeveloper ? 2 : 1).minimumScaleFactor(0.8)
+                            if !isDeveloper, let symbol = fact.symbol {
+                                Image(systemName: symbol).ipaFont(.caption).accessibilityHidden(true)
+                            }
+                            if let caption = fact.caption { Text(caption).ipaFont(.caption).lineLimit(1) }
                         }
-                        if let caption = fact.caption {
-                            Text(caption).ipaFont(.caption).foregroundStyle(.secondary)
+                        .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .padding(.horizontal, 6)
+                        .frame(width: width, height: factHeight)
+                        .overlay(alignment: .trailing) {
+                            if fact.id != columns.last?.id { Divider().frame(height: 44) }
                         }
+                        .accessibilityElement(children: .combine)
                     }
-                    .padding(12)
-                    .frame(width: factWidth, alignment: .leading)
-                    .frame(minHeight: factHeight, alignment: .topLeading)
-                    .background(IPAStyle.card, in: RoundedRectangle(cornerRadius: 14))
-                    .accessibilityElement(children: .combine)
                 }
+                .frame(minWidth: geometry.size.width)
             }
-            .padding(.horizontal, IPAStyle.inset)
+            .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         }
-        .scrollIndicators(.hidden)
-        .padding(.horizontal, -IPAStyle.inset)
+        .frame(height: factHeight)
     }
-
     @ViewBuilder private func information(_ label: String, _ value: String, symbol: String? = nil) -> some View {
         if let value = IPACatalogPresentation.displayValue(value) { VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 24) { Text(label).foregroundStyle(.secondary); Spacer(minLength: 8); if let symbol { Label(value, systemImage: symbol).lineLimit(1) } else { Text(value).multilineTextAlignment(.trailing).lineLimit(3) } }.ipaFont(.subheadline).padding(.vertical, 12)
@@ -1130,37 +1134,46 @@ private struct IPAProductHero: View {
     }
 }
 
-// Preserve the actual artwork proportions, including landscape games such as Minecraft.
-// Reserve the preview row before loading. Images retain their own ratio without
-// animating the vertical position of the description beneath the row.
 private struct IPAProductScreenshots: View {
     let urls: [URL]
     @State private var viewport: CGFloat = 320
-    private let height: CGFloat = 380
+    @State private var aspects: [URL: CGFloat] = [:]
+    private let heightLimit: CGFloat = 380
+    private var rowHeight: CGFloat {
+        urls.compactMap { aspects[$0] }.map { min(heightLimit, viewport / $0) }.max()
+            ?? min(heightLimit, viewport * 9 / 16)
+    }
+
     var body: some View {
         ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: 10) {
                 ForEach(urls, id: \.self) { url in
-                    IPAProductScreenshot(url: url, maximumWidth: viewport, maximumHeight: height)
+                    IPAProductScreenshot(url: url, maximumWidth: viewport, maximumHeight: heightLimit,
+                                         aspect: aspects[url] ?? 16 / 9) { aspect in
+                        if aspects[url] != aspect { aspects[url] = aspect }
+                    }
                 }
             }.scrollTargetLayout()
-        }.frame(height: height).scrollIndicators(.hidden).scrollTargetBehavior(.viewAligned).scrollClipDisabled()
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewport = max(1, $0) }
-            .id(urls)
+        }
+        .frame(height: rowHeight).scrollIndicators(.hidden)
+        .scrollTargetBehavior(.viewAligned).scrollClipDisabled()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewport = max(1, $0) }
     }
 }
+
 private struct IPAProductScreenshot: View {
     let url: URL
     let maximumWidth: CGFloat
     let maximumHeight: CGFloat
+    let aspect: CGFloat
+    let onAspect: (CGFloat) -> Void
     @State private var previewing = false
-    @State private var aspect: CGFloat = 9 / 19.5
     private var width: CGFloat { min(maximumWidth, maximumHeight * aspect) }
     var body: some View {
         Button { previewing = true } label: {
             IPARemoteImage(url: url, pixels: 900, mode: .fit, showsPlaceholder: false, onSize: { size in
                 guard size.width > 0, size.height > 0 else { return }
-                aspect = size.width / size.height
+                onAspect(size.width / size.height)
             }).frame(width: width, height: min(maximumHeight, width / aspect))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
         }.buttonStyle(.plain).accessibilityLabel("Open screenshot")
@@ -1198,7 +1211,7 @@ struct IPASettingsView: View {
                     IPASettingsGroup(title: nil) {
                         NavigationLink { IPASigningOptionsView() } label: { IPASettingsRow("Signing Options", subtitle: "App features and compatibility", symbol: "signature", color: .indigo) }
                         IPASettingsDivider()
-                        NavigationLink { IPARuntimeSettingsView() } label: { IPASettingsRow("App Behavior", subtitle: "Launch, multitasking and advanced tools", symbol: "square.grid.2x2.fill", color: .orange) }
+                        NavigationLink { IPARuntimeSettingsView() } label: { IPASettingsRow("App Behavior", subtitle: "Launch and advanced tools", symbol: "square.grid.2x2.fill", color: .orange) }
                     }
                     IPASettingsGroup(title: nil) {
                         NavigationLink { IPAAppearanceView() } label: { IPASettingsRow("Appearance", subtitle: "Theme, accent and typography", symbol: "paintpalette.fill", color: .purple) }
@@ -1212,14 +1225,15 @@ struct IPASettingsView: View {
                     IPASettingsGroup(title: nil) {
                         Link(destination: URL(string: "https://discord.gg/EQ77PXQQgt")!) { IPASettingsRow("Community", subtitle: "Help, ideas and updates", symbol: "bubble.left.and.bubble.right.fill", color: .mint) }
                         IPASettingsDivider()
+                        NavigationLink { IPAHowItWorksView() } label: { IPASettingsRow("How iPAStore Works", symbol: "book.closed.fill", color: .purple) }
+                        IPASettingsDivider()
+                        Button { showWelcome = true } label: { IPASettingsRow("Open Welcome", symbol: "hand.wave.fill", color: .indigo) }
+                    }
+                    IPASettingsGroup(title: nil) {
                         NavigationLink { IPAPrivacyView() } label: { IPASettingsRow("Privacy & Compatibility", symbol: "hand.raised.fill", color: .cyan) }
                         IPASettingsDivider()
                         NavigationLink { IPALicensesView() } label: { IPASettingsRow("Credits & Licenses", symbol: "doc.text.fill", color: .gray) }
                     }
-                    VStack(spacing: 12) {
-                        NavigationLink { IPAHowItWorksView() } label: { IPASettingsRow("How iPAStore Works", subtitle: "A little guidance.", symbol: "book.closed.fill", color: .purple) }
-                        Button { showWelcome = true } label: { IPASettingsRow("Open Welcome", subtitle: "Choose your setup again", symbol: "hand.wave.fill", color: .indigo) }
-                    }.buttonStyle(.plain).background(IPAStyle.card, in: RoundedRectangle(cornerRadius: 23))
                     Text("iPAStore · \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"))")
                         .ipaFont(.caption).foregroundStyle(.tertiary).frame(maxWidth: .infinity).padding(.bottom, 15)
                 }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 20)
@@ -1252,13 +1266,17 @@ struct IPAFreeSetupView: View {
                 }.buttonStyle(.plain)
                 if let finish {
                     Button(ready ? "Start Using iPAStore" : "Finish Later", action: finish)
-                        .ipaFont(.subheadline, weight: .semibold).frame(maxWidth: .infinity, minHeight: 46).buttonStyle(.plain).foregroundStyle(.tint)
+                        .buttonStyle(IPAPillStyle(prominent: true, compact: true))
+                        .frame(maxWidth: .infinity)
+                } else {
+                    NavigationLink("Renewal & Reminders") { IPARenewalPreferencesView() }
+                        .ipaFont(.subheadline, weight: .semibold)
+                        .foregroundStyle(.tint)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .buttonStyle(.plain)
                 }
-                NavigationLink { IPARenewalPreferencesView() } label: {
-                    IPASetupActionLabel(title: "Renewal & Reminders", symbol: "clock.arrow.circlepath")
-                }.buttonStyle(.plain)
                 Text("iOS 27 or later supports pairing on this iPhone. You’ll approve system prompts and enable a local connection. iOS controls background refresh timing.").ipaFont(.footnote).foregroundStyle(.secondary)
-            }.padding(24).frame(maxWidth: 620).frame(maxWidth: .infinity)
+            }.padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 24).frame(maxWidth: 620).frame(maxWidth: .infinity)
         }.background(IPAStyle.canvas).navigationTitle("").navigationBarTitleDisplayMode(.inline).onAppear { state.importInteractiveReadiness(); state.reload() }
     }
 }

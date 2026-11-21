@@ -66,31 +66,34 @@ final class IPASigningState: ObservableObject {
         !busy && !Self.verifying && !IPAInstallCoordinator.shared.busy && !IPARenewalManager.shared.working
     }
     func selectCertificate(_ id: String) {
-        guard canManageCertificates, certificates.contains(where: { $0.id == id }) else { return }
+        guard canManageCertificates, selectedCertificateID != id, certificates.contains(where: { $0.id == id }) else { return }
         IPAStandaloneCertificates.selectedID = id
         reload()
+        IPAFeedback.confirmationHaptic()
     }
     func saveCertificate(_ data: Data, password: String, filename: String) throws {
         guard canManageCertificates else { throw IPAStandaloneCertificates.StoreError.busy }
         #if !IPASTORE_PREVIEW
         try IPAStandaloneCertificates.add(data, password: password, filename: filename)
         reload()
+        IPAFeedback.confirmationHaptic()
         #endif
     }
     func renameCertificate(_ id: String, to name: String) {
         guard canManageCertificates else { return }
-        IPAStandaloneCertificates.rename(id, to: name)
+        guard IPAStandaloneCertificates.rename(id, to: name) else { return }
         reload()
+        IPAFeedback.confirmationHaptic()
     }
     func removeSavedCertificate(_ id: String) {
         guard canManageCertificates else { return }
         defer { reload() }
-        do { try IPAStandaloneCertificates.remove(id) }
+        do { try IPAStandaloneCertificates.remove(id); IPAFeedback.confirmationHaptic() }
         catch { message = error.localizedDescription }
     }
     func removeProfile() {
         guard canManageCertificates else { return }
-        do { try IPAStandaloneCertificates.removeProfile(for: selectedCertificateID); reload() }
+        do { try IPAStandaloneCertificates.removeProfile(for: selectedCertificateID); reload(); IPAFeedback.confirmationHaptic() }
         catch { message = error.localizedDescription }
     }
     func saveProfile(_ data: Data) throws {
@@ -102,6 +105,7 @@ final class IPASigningState: ObservableObject {
         _ = try LCUtils.standaloneProfileInfo(data, certificate: credential.data, password: credential.password)
         try IPAStandaloneCertificates.saveProfile(data, for: selectedCertificateID)
         reload()
+        IPAFeedback.confirmationHaptic()
         #endif
     }
     @Published private(set) var busy = false
@@ -418,12 +422,14 @@ struct IPACertificateImportView: View {
         selectedID = id
     }
     #endif
-    static func rename(_ id: String, to name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func rename(_ id: String, to name: String) -> Bool {
+        let normalized = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
         var saved = imported
-        guard !trimmed.isEmpty, let index = saved.firstIndex(where: { $0.id == id }) else { return }
-        saved[index].name = String(trimmed.prefix(100))
+        guard !normalized.isEmpty, let index = saved.firstIndex(where: { $0.id == id }),
+              saved[index].name != normalized else { return false }
+        saved[index].name = normalized
         imported = saved
+        return true
     }
     static func remove(_ id: String) throws {
         guard id != legacyID else { return }

@@ -213,8 +213,12 @@ private final class IPAStoreNativeSigningState: ObservableObject {
             _ = try await AuthManager.shared.signIn(presentingViewController: presenter, skipResign: true, skipHowTos: true)
             reload(); stepCompleted()
         } catch {
-            if !(error is CancellationError) { message = "The account connection didn’t finish. Check your network and local VPN, verify the pairing connection, then try again. If Apple requests verification, complete it in the sign-in dialog.\n\n" + error.localizedDescription }
+            if !(error is CancellationError) { message = IPAAccountSignInFailure(error).message }
         }
+    }
+    func finishSetup(_ done: () -> Void) {
+        if pairingImported && connectionVerified && accountStored { stepCompleted() }
+        done()
     }
     func receiveInstallation(_ notification: Notification) {
         guard let url = notification.userInfo?[AppDelegate.importAppDeepLinkURLKey] as? URL else { return }
@@ -231,7 +235,9 @@ private final class IPAStoreNativeSigningState: ObservableObject {
                 Task { @MainActor in
                     self?.installing = false
                     switch result {
-                    case .success: self?.installationMessage = "The app was installed on your iPhone."
+                    case .success:
+                        self?.installationMessage = "The app was installed on your iPhone."
+                        self?.stepCompleted()
                     case .failure(let error): self?.message = error.localizedDescription
                     }
                 }
@@ -253,12 +259,14 @@ private struct IPAStoreNativeSigningView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
-                        Image(systemName: "leaf.circle.fill").font(.system(size: 38, weight: .light)).foregroundStyle(.tint).accessibilityHidden(true)
-                        Text("Free Signing").font(.title2.bold())
+                        Image(systemName: "leaf.circle.fill").font(.system(size: 48, weight: .light)).foregroundStyle(.tint).accessibilityHidden(true)
+                        Text("Free Signing").font(.largeTitle.bold())
                         Text("Pair this iPhone, connect locally, then sign in with your Apple Account. Your apps stay inside iPAStore.")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }.padding(.vertical, 12)
-                }.listRowBackground(Color.clear)
+                            .font(.body).foregroundStyle(.secondary)
+                    }.padding(.bottom, 8)
+                }
+                .listRowInsets(EdgeInsets(top: 0, leading: 18, bottom: 4, trailing: 18))
+                .listRowBackground(Color.clear)
                 Section {
                     step("Pair This iPhone", subtitle: state.pairingImported ? "Ready" : "Set up directly on this iPhone.", symbol: "iphone.and.arrow.forward", complete: state.pairingImported)
                     SwiftUI.Button(state.pairingImported ? "Pair Again" : "Pair This iPhone") { Task { await state.pairThisIPhone() } }.disabled(state.busy)
@@ -291,8 +299,13 @@ private struct IPAStoreNativeSigningView: View {
                 if state.busy { Section { HStack { ProgressView(); Text("Working…").foregroundStyle(.secondary) } } }
                 if let message = state.installationMessage { Section { Text(message) } }
             }
+            .contentMargins(.top, 6, for: .scrollContent)
             .navigationTitle("").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { SwiftUI.Button("Done", action: done).disabled(state.busy || state.installing) } }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    SwiftUI.Button("Done") { state.finishSetup(done) }.disabled(state.busy || state.installing)
+                }
+            }
             .task { await state.prepare(); state.installPending() }
             .onDisappear { state.cancelPairing() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in state.reload() }

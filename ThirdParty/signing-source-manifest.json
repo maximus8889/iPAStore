@@ -92,7 +92,7 @@
     "changes": [
       {
         "path": "SigningBackend/IPAStoreNativeSigning.swift",
-        "sha256": "a547ed8e1d33500ee6bba1dbcc52465fdf99b18c7a89ddbe1358273fd6913599"
+        "sha256": "c914fa472a12b834871daff57ac0b5f691536a44f70e2f51ce81bc144d2cf95f"
       },
       {
         "path": "SideStoreSupport/IPAResultGate.swift",
@@ -100,11 +100,11 @@
       },
       {
         "path": "SigningBackend/Authentication/AuthenticationViewController.swift",
-        "sha256": "6e15295305547ec34cc7a4d19921fee301dba084ae5248503068efc289dacb01"
+        "sha256": "d7dda0f1a903374f5977d300b4bacf4f3b7b55a9383d581cf687c4fc6148e2c4"
       },
       {
         "path": "SigningBackend/Authentication/Authentication.storyboard",
-        "sha256": "75071dfbdb4a7dc5eea169ea6485ef12cf70f94e5636a2a404b33a217b50d770"
+        "sha256": "0564ec7a0b36166f4d49f470301581115159546266ecf89edb3fdf7e440e370c"
       },
       {
         "path": "SigningBackend/WidgetAppearance.patch",

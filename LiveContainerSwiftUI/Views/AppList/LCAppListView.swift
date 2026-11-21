@@ -82,6 +82,7 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
     @EnvironmentObject private var catalog: AltStoreSourcesViewModel
     @EnvironmentObject private var discovery: IPADiscovery
     @EnvironmentObject private var catalogIndex: IPAAllAppsIndex
+    @ObservedObject private var activity = IPAActivityHistory.shared
     @AppStorage("IPAInstalledAppSubtitle") private var subtitle = IPAAppSubtitle.none
     
     @EnvironmentObject private var sharedModel : SharedModel
@@ -146,7 +147,19 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
         }
     }
 
+    @ViewBuilder private func updateButton(_ update: IPAInstalledAppUpdate) -> some View {
+        if installer.job(for: update.variant, independent: update.independent) == nil {
+            Button("Update") { installer.start(update.variant, independent: update.independent) }
+                .buttonStyle(IPAPillStyle(prominent: true, compact: true))
+                .accessibilityLabel("Update \(update.variant.app.name)")
+        }
+    }
+
     var body: some View {
+        let updates = Dictionary(IPAInstalledAppUpdate.matches(
+            apps: sortedApps.filter { !$0.uiIsHidden && !$0.uiIsLocked },
+            independentApps: installer.independentApps, index: catalogIndex, history: activity.downloads
+        ).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -174,10 +187,6 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                        !sortedApps.isEmpty || (sharedModel.isHiddenAppUnlocked && !sortedHiddenApps.isEmpty) {
                         IPAArrangeCollectionButton("Arrange Apps") { customSortViewPresent = true }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if sortedApps.isEmpty && sortedHiddenApps.isEmpty && installer.independentApps.isEmpty {
-                        IPACollectionEmptyState(symbol: IPAStyle.appsSymbol, message: "Your downloaded apps appear here.") {}
-                            .onTapGesture(count: 3) { Task { await authenticateUser() } }
                     }
                 }.padding(.horizontal, 20).padding(.top, 8).frame(maxWidth: 760).frame(maxWidth: .infinity)
                 NavigationLink(
@@ -209,7 +218,13 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                 
                 LazyVStack {
                     ForEach(filteredApps, id: \.self) { app in
-                        LCAppBanner(appModel: app, delegate: self, subtitle: subtitleText(for: app))
+                        HStack(spacing: 8) {
+                            LCAppBanner(appModel: app, delegate: self, subtitle: subtitleText(for: app))
+                            if let identifier = app.appInfo.bundleIdentifier(),
+                               let update = updates[IPAInstalledAppUpdate.id(identifier, independent: false)] {
+                                updateButton(update)
+                            }
+                        }
                     }
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
                 }
@@ -230,6 +245,9 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                                 }
                                 Spacer()
                                 Button("Open") { Task { await installer.open(app.identifier, preferIndependent: true) } }.buttonStyle(.bordered).buttonBorderShape(.capsule)
+                                if let update = updates[IPAInstalledAppUpdate.id(app.identifier, independent: true)] {
+                                    updateButton(update)
+                                }
                             }.contextMenu { Button("Remove from List", role: .destructive) { forgetting = app } }
                         }
                     }.padding(.horizontal, 20).padding(.bottom)
@@ -287,6 +305,12 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                     Text("lc.appList.manageInPrimaryTip".loc).foregroundStyle(.gray).padding()
                 }
 
+            }
+            .overlay {
+                if sortedApps.isEmpty && sortedHiddenApps.isEmpty && installer.independentApps.isEmpty && installer.jobs.isEmpty && guestSession.interruptedRecord == nil {
+                    IPACollectionEmptyState(symbol: IPAStyle.appsSymbol, message: "Your downloaded apps appear here.") {}
+                        .onTapGesture(count: 3) { Task { await authenticateUser() } }
+                }
             }
             .coordinateSpace(name: "scroll")
             .onAppear {
@@ -1076,14 +1100,53 @@ extension View {
 }
 
 
-private struct IPAInstalledAppUpdates: View {
-    private struct Update: Identifiable {
-        var id: String { "\(independent ? "device" : "container")|\(variant.app.bundleIdentifier)" }
-        let variant: IPAAppVariant
-        let installed: String
-        let latest: String
-        let independent: Bool
+private struct IPAInstalledAppUpdate: Identifiable {
+    var id: String { Self.id(variant.app.bundleIdentifier, independent: independent) }
+    let variant: IPAAppVariant
+    let installed: String
+    let latest: String
+    let independent: Bool
+
+    static func id(_ identifier: String, independent: Bool) -> String {
+        (independent ? "device|" : "container|") + identifier.lowercased()
     }
+
+    @MainActor static func matches(apps: [LCAppModel], independentApps: [IPAIndependentApp],
+                                   index: IPAAllAppsIndex, history: [IPAActivityRecord]) -> [Self] {
+        let originsByID = Dictionary(grouping: history, by: { $0.identifier.lowercased() })
+        let containerCopies = Dictionary(grouping: apps.compactMap { app in
+            app.appInfo.bundleIdentifier().map { ($0, app.version) }
+        }, by: { $0.0.lowercased() })
+        let containerRecords = containerCopies.values.compactMap { copies -> (String, String, Bool)? in
+            guard copies.count == 1, let (identifier, version) = copies.first else { return nil }
+            return (identifier, version, false)
+        }
+        let deviceRecords = independentApps.compactMap { app -> (String, String, Bool)? in
+            let recent = originsByID[app.identifier.lowercased()]?.first { abs($0.date.timeIntervalSince(app.installedAt)) < 60 }
+            return (app.version ?? recent?.version).map { (app.identifier, $0, true) }
+        }
+        return (containerRecords + deviceRecords).compactMap { identifier, version, independent in
+            let key = identifier.lowercased()
+            let matching = (originsByID[key] ?? []).filter { record in
+                record.version.map { IPACompatibility.compare($0, version) == .orderedSame } == true
+            }
+            let origins = Set(matching.compactMap(\.libraryURL).map(IPAStoreDirectory.canonical))
+            guard matching.allSatisfy({ $0.libraryURL != nil }), origins.count == 1,
+                  let origin = origins.first,
+                  let entry = index.entry(identifier: identifier),
+                  let candidate = entry.variants.first(where: {
+                      $0.store.id == origin && $0.app.bundleIdentifier.lowercased() == key
+                  }),
+                  let release = candidate.app.latestVersion,
+                  IPACompatibility.compare(release.version, version) == .orderedDescending,
+                  IPACompatibility.issue(minimum: release.minOSVersion, maximum: release.maxOSVersion, current: UIDevice.current.systemVersion) == nil,
+                  candidate.store.suggestion?.marketplaceOnly != true else { return nil }
+            return Self(variant: candidate, installed: version, latest: release.version, independent: independent)
+        }
+    }
+}
+
+private struct IPAInstalledAppUpdates: View {
     let apps: [LCAppModel]
     let independentApps: [IPAIndependentApp]
     @EnvironmentObject private var catalog: AltStoreSourcesViewModel
@@ -1091,7 +1154,7 @@ private struct IPAInstalledAppUpdates: View {
     @EnvironmentObject private var index: IPAAllAppsIndex
     @Environment(\.dismiss) private var dismiss
     @State private var checking = true
-    @State private var updates: [Update] = []
+    @State private var updates: [IPAInstalledAppUpdate] = []
     @State private var failedChecks = 0
     @State private var selected: Set<String> = []
 
@@ -1142,47 +1205,19 @@ private struct IPAInstalledAppUpdates: View {
 
     private func check() async {
         async let feeds: Void = catalog.refreshAllSources()
-        async let suggestions: Void = discovery.load()
+        async let suggestions: Void = discovery.load(force: true)
         _ = await (feeds, suggestions)
         index.rebuild(subscribed: catalog.sources, discovered: discovery.sources)
         await index.waitForRebuild()
         guard !Task.isCancelled else { return }
         failedChecks = catalog.sources.filter { $0.error != nil }.count
-        let history = Dictionary(grouping: IPAActivityHistory.shared.downloads, by: { $0.identifier.lowercased() })
-        let containerCopies = Dictionary(grouping: apps.compactMap { app in
-            app.appInfo.bundleIdentifier().map { ($0, app.version) }
-        }, by: { $0.0.lowercased() })
-        let containerRecords = containerCopies.values.compactMap { copies -> (String, String, Bool)? in
-            guard copies.count == 1, let (identifier, version) = copies.first else { return nil }
-            return (identifier, version, false)
-        }
-        let deviceRecords = independentApps.compactMap { app -> (String, String, Bool)? in
-            let recentInstall = history[app.identifier.lowercased()]?.first {
-                abs($0.date.timeIntervalSince(app.installedAt)) < 60
-            }
-            return (app.version ?? recentInstall?.version).map { (app.identifier, $0, true) }
-        }
-        updates = (containerRecords + deviceRecords).compactMap { identifier, version, independent in
-            let key = identifier.lowercased()
-            let records = history[key] ?? []
-            let matching = records.filter { $0.version == version }
-            let origins = Set(matching.compactMap(\.libraryURL).map(IPAStoreDirectory.canonical))
-            guard matching.allSatisfy({ $0.libraryURL != nil }), origins.count == 1,
-                  let origin = origins.first,
-                  let entry = index.entry(identifier: identifier),
-                  let candidate = entry.variants.first(where: {
-                      $0.store.id == origin && $0.app.bundleIdentifier.lowercased() == key
-                  }),
-                  let release = candidate.app.latestVersion,
-                  IPACompatibility.compare(release.version, version) == .orderedDescending,
-                  IPACompatibility.issue(minimum: release.minOSVersion, maximum: release.maxOSVersion, current: UIDevice.current.systemVersion) == nil,
-                  candidate.store.suggestion?.marketplaceOnly != true else { return nil }
-            return Update(variant: candidate, installed: version, latest: release.version, independent: independent)
-        }.sorted { $0.variant.app.name.localizedStandardCompare($1.variant.app.name) == .orderedAscending }
+        updates = IPAInstalledAppUpdate.matches(apps: apps, independentApps: independentApps, index: index,
+                                                history: IPAActivityHistory.shared.downloads)
+            .sorted { $0.variant.app.name.localizedStandardCompare($1.variant.app.name) == .orderedAscending }
         checking = false
     }
 
-    private func download(_ updates: [Update]) {
+    private func download(_ updates: [IPAInstalledAppUpdate]) {
         for update in updates { IPAInstallCoordinator.shared.start(update.variant, independent: update.independent) }
         dismiss()
     }

@@ -206,8 +206,13 @@ struct IPAIdentityReview: Identifiable {
                 if Task.isCancelled || error is CancellationError { jobs.removeAll { $0 === job } }
                 else {
                     let problem = IPAInstallIssue.from(error)
-                    job.failure = problem; job.status = problem.title
-                    retry = { [weak self] in self?.start(variant, independent: independent) }
+                    if problem.action == .signing || problem.action == .containerMode {
+                        jobs.removeAll { $0 === job }
+                        retry = nil
+                    } else {
+                        job.failure = problem; job.status = problem.title
+                        retry = { [weak self] in self?.start(variant, independent: independent) }
+                    }
                     issue = problem
                 }
             }
@@ -686,23 +691,33 @@ struct IPAInstallationOverlay: ViewModifier {
                 }.interactiveDismissDisabled().modifier(IPATheme())
             }
             .sheet(item: $installer.issue) { issue in
-                NavigationStack {
-                    Form {
-                        Section { Label(issue.title, systemImage: "exclamationmark.circle").font(.title3.bold()); Text(issue.message.ipaDisplayMessage) }
-                        Section {
-                            if issue.action == .signing || issue.action == .containerMode { Button("Go to Settings") { installer.issue = nil; IPASettingsNavigation.open() } }
-                            if issue.action == .containerMode {
-                                Button("Use Apps in iPAStore") { UserDefaults.standard.set("container", forKey: "IPAInstallMode"); installer.issue = nil }
-                                Text("This changes the installation method. Return to the app and tap Get again.").ipaFont(.footnote).foregroundStyle(.secondary)
+                if issue.action == .signing || issue.action == .containerMode {
+                    IPASigningHelpSheet {
+                        installer.issue = nil
+                        IPASettingsNavigation.open()
+                    }
+                    .modifier(IPATheme())
+                } else {
+                    NavigationStack {
+                        Form {
+                            Section {
+                                Label(issue.title, systemImage: "exclamationmark.circle").ipaFont(.title3, weight: .bold)
+                                Text(issue.message.ipaDisplayMessage)
                             }
-                            if issue.action == .storage { Text("Open Settings → General → iPhone Storage. Free space, then try the installation again.").foregroundStyle(.secondary) }
+                            if issue.action == .storage {
+                                Text("Open Settings → General → iPhone Storage. Free space, then try the installation again.")
+                                    .foregroundStyle(.secondary)
+                            }
                             if issue.action == .retry {
-                                if installer.canRetry { Button("Try Again") { installer.tryAgain() } }
-                                else { Button("Import Again in Apps") { installer.issue = nil; DataManager.shared.model.selectedTab = .apps } }
+                                Button(installer.canRetry ? "Try Again" : "Import Again in Apps") {
+                                    if installer.canRetry { installer.tryAgain() }
+                                    else { installer.issue = nil; DataManager.shared.model.selectedTab = .apps }
+                                }
                             }
                         }
-                    }.navigationTitle("Help & Recovery").navigationBarTitleDisplayMode(.inline)
-                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { installer.issue = nil } } }
+                        .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .presentationDragIndicator(.visible)
                 }
             }
             .sheet(item: Binding(get: { installer.identityReview }, set: { _ in })) { review in
@@ -719,6 +734,48 @@ struct IPAInstallationOverlay: ViewModifier {
 
                 }
             }
+    }
+}
+
+private struct IPASigningHelpSheet: View {
+    let openSettings: () -> Void
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            instructions
+            ScrollView { instructions }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(IPAStyle.canvas)
+        .presentationDetents([.height(390), .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var instructions: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Go to Settings and select a way to sign apps.")
+                .ipaFont(.title3, weight: .bold)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Go to Settings", action: openSettings)
+                .buttonStyle(IPAPillStyle(prominent: true, compact: true))
+
+            method("Using a Certificate", symbol: "checkmark.seal",
+                   detail: "Choose Certificate, then Manage. Add a signing certificate and its matching provisioning profile.")
+            method("Using for Free", symbol: "leaf",
+                   detail: "Choose Free, then Manage. Pair your iPhone, verify the local connection, and connect your Apple Account.")
+        }
+        .padding(.horizontal, 22).padding(.vertical, 26)
+        .frame(maxWidth: 550, alignment: .leading)
+    }
+
+    private func method(_ title: LocalizedStringKey, symbol: String, detail: LocalizedStringKey) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(title, systemImage: symbol).ipaFont(.headline, weight: .semibold)
+            Text(detail).ipaFont(.subheadline).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(13).frame(maxWidth: .infinity, alignment: .leading)
+        .background(IPAStyle.card, in: RoundedRectangle(cornerRadius: 14))
     }
 }
 

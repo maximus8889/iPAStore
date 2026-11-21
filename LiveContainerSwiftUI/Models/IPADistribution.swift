@@ -192,30 +192,16 @@ struct IPAUpdatesView: View {
                 }
             }
             Button(action: check) {
-                HStack(spacing: 8) {
-                    if checking {
-                        ProgressView().controlSize(.small).tint(.white)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
+                HStack(spacing: 6) {
+                    if checking { ProgressView().controlSize(.small) }
                     Text(checking ? "Checking…" : "Check for Updates")
                 }
-                .ipaFont(.subheadline, weight: .semibold)
-                .frame(maxWidth: .infinity, minHeight: 48)
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
+            .buttonStyle(IPAPillStyle(prominent: true, compact: true))
             .disabled(work != nil)
         }
         .padding(20).frame(maxWidth: .infinity, alignment: .leading)
-        .background(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 24)
-                .fill(IPAStyle.card)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 24)
-                        .fill(.linearGradient(colors: [accent.opacity(0.10), .clear], startPoint: .topLeading, endPoint: .bottomTrailing))
-                }
-        }
+        .background(IPAStyle.card, in: RoundedRectangle(cornerRadius: 24))
     }
 
     private func releaseCard(_ release: IPADistribution.Release, build: Int) -> some View {

@@ -41,7 +41,6 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
     private let createdAt = CACurrentMediaTime()
     private let done: () -> Void
     private let state: IPASigningState
-    private var overview: UIViewController?
     private var lastFrame = CGRect.null
     private var lastInsets = UIEdgeInsets.zero
     private var scene: AppSceneViewController?
@@ -54,10 +53,6 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        let local = UIHostingController(rootView: IPAAccountSetupOverview(state: state).modifier(IPATheme()))
-        overview = local; addChild(local); local.view.frame = view.bounds
-        local.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(local.view); local.didMove(toParent: self)
         message.isHidden = true; message.textColor = .secondaryLabel; message.textAlignment = .center; message.numberOfLines = 0
         message.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(message)
         cancel.setTitle("Back", for: .normal); cancel.translatesAutoresizingMaskIntoConstraints = false
@@ -66,8 +61,7 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
             message.centerYAnchor.constraint(equalTo: view.centerYAnchor), message.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24), message.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
             cancel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8), cancel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20), cancel.heightAnchor.constraint(equalToConstant: 44)
         ])
-        // Let the local instructions draw while the isolated tools start. No
-        // certificate reads, account prewarming or network request is needed.
+        // Load the isolated signing view without presenting a second setup page.
         DispatchQueue.main.async { [weak self] in self?.startSigning() }
     }
     private func startSigning() {
@@ -75,6 +69,7 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
         let child = AppSceneViewController(bundleId: "builtinSideStore", dataUUID: "IPAStoreSigningSetup", delegate: self)
         guard let child else { showFailure("Signing setup couldn’t start. Go back and try again."); return }
         scene = child; addChild(child); child.view.frame = view.bounds; child.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        child.view.alpha = 0
         view.insertSubview(child.view, at: 0); child.didMove(toParent: self); view.setNeedsLayout()
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(20))
@@ -96,9 +91,6 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
     }
     func appSceneVCWillActivateScene(_ vc: AppSceneViewController!) {
         guard !stopped else { return }
-        activated = true; lastFrame = .null
-        recordStartupTiming("ready")
-        view.setNeedsLayout()
         vc.updateSettings { [weak self] settings in
             guard let self, let settings else { return }
             settings.setValue(false, forKey: "statusBarDisabled")
@@ -106,14 +98,14 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
             settings.peripheryInsets = self.view.safeAreaInsets
             settings.setFrame(self.view.bounds)
         }
+    }
+    func appSceneVCDidAttachContent(_ vc: AppSceneViewController!) {
+        guard !stopped else { return }
+        activated = true; lastFrame = .null
+        recordStartupTiming("ready")
+        view.setNeedsLayout()
         message.isHidden = true; cancel.isHidden = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self, !self.stopped, let overview = self.overview else { return }
-            UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.12, animations: { overview.view.alpha = 0 }) { [weak self] _ in
-                guard let self, self.overview === overview else { return }
-                overview.willMove(toParent: nil); overview.view.removeFromSuperview(); overview.removeFromParent(); self.overview = nil
-            }
-        }
+        UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.18) { vc.view.alpha = 1 }
     }
     private func recordStartupTiming(_ phase: String) {
         guard let file = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("iPAStoreSigningSetupTiming.json"),
@@ -122,7 +114,7 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
     }
     private func showFailure(_ text: String) {
         recordStartupTiming("failed")
-        overview?.view.isHidden = true
+        scene?.view.alpha = 0
         message.text = text; message.isHidden = false; cancel.isHidden = false
     }
     func appSceneVC(_ vc: AppSceneViewController!, didInitializeWithError error: (any Error)!) {
@@ -148,32 +140,4 @@ private final class IPAInteractiveSigningController: UIViewController, AppSceneV
     }
 }
 
-// Meaningful local content replaces the empty process-start gap. Readiness is
-// informational here; only the live signing service can verify prerequisites.
-private struct IPAAccountSetupOverview: View {
-    @ObservedObject var state: IPASigningState
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                Image(systemName: IPASetupSymbols.free).font(.system(size: 38, weight: .light)).foregroundStyle(.tint)
-                Text("Signing Setup").ipaFont(.largeTitle, weight: .bold)
-                Text("Connect once. Renew easily.").ipaFont(.title2, weight: .bold)
-                Text("Set up your iPhone’s connection and signing account below.").ipaFont(.subheadline).foregroundStyle(.secondary)
-                step("Device Pairing", detail: state.pairingImported ? "Pairing file imported" : "Import this iPhone’s pairing file.", symbol: "iphone.and.arrow.forward")
-                step("Local Connection", detail: "Connect your local VPN and verify the connection.", symbol: "network")
-                step("Signing Account", detail: state.accountSaved ? "Account saved" : "Connect your Apple Account.", symbol: "person.crop.circle.badge.checkmark")
-                ProgressView().controlSize(.small).accessibilityLabel("Preparing signing tools")
-            }.padding(24).padding(.top, 60).frame(maxWidth: 760).frame(maxWidth: .infinity)
-        }.background(IPAStyle.canvas)
-    }
-    private func step(_ title: String, detail: String, symbol: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: symbol).ipaFont(.title2).foregroundStyle(.tint).frame(width: 32)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).ipaFont(.headline)
-                Text(detail).ipaFont(.subheadline).foregroundStyle(.secondary)
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
 #endif

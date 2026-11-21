@@ -20,6 +20,7 @@ API_AVAILABLE(ios(16.0))
 - (void)appSceneVCRequestedReturn:(AppSceneViewController *)vc;
 - (void)appSceneVC:(AppSceneViewController*)vc didUpdateFromSettings:(UIMutableApplicationSceneSettings *)settings transitionContext:(id)context lifecycleActionType:(uint32_t)actionType;
 - (void)appSceneVCWillActivateScene:(AppSceneViewController *)vc;
+- (void)appSceneVCDidAttachContent:(AppSceneViewController *)vc;
 @end
 
 API_AVAILABLE(ios(16.0))

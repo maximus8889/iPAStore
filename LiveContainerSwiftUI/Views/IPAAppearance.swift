@@ -15,16 +15,19 @@ enum IPAMotion {
 
 struct IPAPillStyle: ButtonStyle {
     var prominent = false
+    var compact = false
+    @AppStorage("IPAFilledButtons") private var filledButtons = false
     @AppStorage("IPAAccentHex") private var accentHex = "systemBlue"
     @Environment(\.isEnabled) private var enabled
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.ipaFont(.subheadline, weight: .bold)
+        let filled = prominent && filledButtons
+        return configuration.label.ipaFont(.subheadline, weight: .semibold)
             .lineLimit(1).fixedSize(horizontal: true, vertical: true)
-            .foregroundStyle(prominent ? IPAAppearance.buttonForeground(accentHex) : IPAAppearance.accent(accentHex))
-            .padding(.horizontal, 18).frame(minWidth: 66, minHeight: 34)
-            .background(prominent ? IPAAppearance.accent(accentHex) : Color(uiColor: scheme == .dark ? .tertiarySystemFill : .secondarySystemFill), in: Capsule())
+            .foregroundStyle(filled ? IPAAppearance.buttonForeground(accentHex) : IPAAppearance.accent(accentHex))
+            .padding(.horizontal, compact ? 13 : 18).frame(minWidth: 66, minHeight: compact ? 30 : 34)
+            .background(filled ? IPAAppearance.accent(accentHex) : Color(uiColor: scheme == .dark ? .tertiarySystemFill : .secondarySystemFill), in: Capsule())
             .opacity(enabled ? (configuration.isPressed ? 0.82 : 1) : 0.5)
             .animation(IPAMotion.press(configuration.isPressed, reduced: reduceMotion), value: configuration.isPressed)
     }
@@ -88,7 +91,7 @@ enum IPAAppearance {
     }
     static func uiFont(size: CGFloat, style: UIFont.TextStyle, weight: UIFont.Weight = .regular) -> UIFont {
         let choice = UserDefaults.standard.string(forKey: "IPAFontChoice") ?? "system"
-        let bold = UserDefaults.standard.bool(forKey: "IPABoldText")
+        let bold = UserDefaults.standard.bool(forKey: "IPABoldText") && !UIAccessibility.isBoldTextEnabled
         var base = UIFont.systemFont(ofSize: size, weight: bold ? .bold : weight)
         if let face = IPAFontChoice.face(for: choice), let chosen = UIFont(name: face, size: size) {
             base = chosen
@@ -115,10 +118,16 @@ struct IPATheme: ViewModifier {
     func body(content: Content) -> some View {
         content.tint(IPAAppearance.accent(hex)).accentColor(IPAAppearance.accent(hex))
             .environment(\.ipaAccent, IPAAppearance.accent(hex))
-            .fontWeight(bold ? .bold : nil)
+            .fontWeight(bold && !UIAccessibility.isBoldTextEnabled ? .bold : nil)
             .fontDesign(font == "rounded" ? .rounded : font == "serif" ? .serif : font == "mono" || font == "pixel" ? .monospaced : .default)
             .task { IPAAppearance.registerFonts() }
-            .onAppear { applyWindowTint(hex) }
+            .onAppear {
+                applyWindowTint(hex)
+                if UIAccessibility.isBoldTextEnabled { bold = false }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.boldTextStatusDidChangeNotification)) { _ in
+                if UIAccessibility.isBoldTextEnabled { bold = false }
+            }
             .onChange(of: hex) { _, value in
                 applyWindowTint(value)
             }
@@ -137,10 +146,10 @@ private struct IPAFontModifier: ViewModifier {
     private var font: Font {
         let sizes: [Font.TextStyle: CGFloat] = [.largeTitle: 34, .title: 28, .title2: 22, .title3: 20, .headline: 17, .body: 17, .callout: 16, .subheadline: 15, .footnote: 13, .caption: 12, .caption2: 11]
         if let face = IPAFontChoice.face(for: choice) {
-            return .custom(face, size: sizes[style] ?? 17, relativeTo: style).weight(bold ? .bold : weight)
+            return .custom(face, size: sizes[style] ?? 17, relativeTo: style).weight(bold && !UIAccessibility.isBoldTextEnabled ? .bold : weight)
         }
         let design: Font.Design = choice == "rounded" ? .rounded : choice == "serif" ? .serif : choice == "mono" ? .monospaced : .default
-        return .system(style, design: design).weight(bold ? .bold : weight)
+        return .system(style, design: design).weight(bold && !UIAccessibility.isBoldTextEnabled ? .bold : weight)
     }
     func body(content: Content) -> some View { content.font(font) }
 }
@@ -157,6 +166,8 @@ struct IPAAppearanceView: View {
     @AppStorage("IPAAccentHex") private var hex = "systemBlue"
     @AppStorage("IPAFontChoice") private var font = "system"
     @AppStorage("IPABoldText") private var bold = false
+    @AppStorage("IPAFilledButtons") private var filledButtons = false
+    @State private var systemBold = UIAccessibility.isBoldTextEnabled
     var body: some View {
         Form {
             Section("Preview") {
@@ -169,6 +180,7 @@ struct IPAAppearanceView: View {
             }
             Section("Display") {
                 Picker("Appearance", selection: $mode) { Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark") }
+                    .pickerStyle(.menu).tint(.secondary)
                 ColorPicker("Accent Color", selection: Binding(get: { IPAAppearance.accent(hex) }, set: { selectAccent(IPAAppearance.hex($0)) }), supportsOpacity: false)
                 HStack {
                     ForEach(["systemBlue", "AF52DE", "FFCC00", "FF2D55", "34C759", "FF9500"], id: \.self) { value in
@@ -186,7 +198,7 @@ struct IPAAppearanceView: View {
                         Text(choice.name).font(choice.postScript.map { .custom($0, size: 17, relativeTo: .body) } ?? .body).tag(choice.id)
                     }
                 }.pickerStyle(.navigationLink)
-                Toggle("Bold Text", isOn: $bold)
+                Toggle("Bold Text", isOn: $bold).disabled(systemBold)
             } header: { Text("Typography") }
             Section("Home Screen") {
                 NavigationLink { IPAIconPicker() } label: { Label("App Icon", systemImage: "app") }
@@ -195,25 +207,40 @@ struct IPAAppearanceView: View {
                 Picker("Under App Names", selection: $subtitle) {
                     ForEach(IPAAppSubtitle.allCases) { Text($0.title).tag($0) }
                 }.pickerStyle(.navigationLink)
+                Picker("Button Style", selection: $filledButtons) {
+                    Text("Gray").tag(false)
+                    Text("Filled").tag(true)
+                }.pickerStyle(.menu).tint(.secondary)
             }
             Section("Sounds & Haptics") {
                 NavigationLink {
                     feedbackChoices("Success Sound", options: IPAFeedback.Sound.allCases, selection: $sound) { IPAFeedback.preview($0) }
-                } label: { IPASettingsRow("Success Sound", subtitle: sound.title, symbol: "waveform", color: .indigo) }
+                } label: { feedbackRow("Success Sound", value: sound.title, symbol: "waveform") }
                 NavigationLink {
                     feedbackChoices("Haptic Feedback", options: IPAFeedback.Haptic.allCases, selection: $haptic) { IPAFeedback.preview($0) }
-                } label: { IPASettingsRow("Haptic Feedback", subtitle: haptic.title, symbol: "iphone.radiowaves.left.and.right", color: .teal) }
+                } label: { feedbackRow("Haptic Feedback", value: haptic.title, symbol: "iphone.radiowaves.left.and.right") }
             }
-            Section { Button("Reset Appearance") { mode = "system"; hex = "systemBlue"; font = "system"; bold = false; subtitle = .none } }
+            Section { Button("Reset Appearance") { mode = "system"; hex = "systemBlue"; font = "system"; bold = false; subtitle = .none; filledButtons = false } }
         }.navigationTitle("Appearance").navigationBarTitleDisplayMode(.inline).ipaNativePage()
             .modifier(IPATheme())
+            .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.boldTextStatusDidChangeNotification)) { _ in
+                systemBold = UIAccessibility.isBoldTextEnabled
+            }
             .preferredColorScheme(mode == "light" ? .light : mode == "dark" ? .dark : nil)
     }
 
     private func selectAccent(_ value: String) {
         guard hex != value else { return }
         hex = value
-        IPAFeedback.success()
+        IPAFeedback.confirmationHaptic()
+    }
+
+    private func feedbackRow(_ title: LocalizedStringKey, value: String, symbol: String) -> some View {
+        LabeledContent {
+            Text(value).foregroundStyle(.secondary)
+        } label: {
+            Label(title, systemImage: symbol)
+        }
     }
 
     private func feedbackChoices<Option: IPAFeedbackOption, Options: RandomAccessCollection>(

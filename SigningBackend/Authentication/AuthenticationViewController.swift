@@ -27,18 +27,44 @@ final class AuthenticationViewController: UIViewController
     @IBOutlet private var scrollView: UIScrollView!
     @IBOutlet private var contentStackView: UIStackView!
     
+    private var iPAStoreInteractive: Bool { getenv("IPA_SIGNING_INTERACTIVE") != nil }
+    private var iPAStoreAccent: UIColor {
+        let hex = ProcessInfo.processInfo.environment["IPA_SIGNING_ACCENT"] ?? "007AFF"
+        guard let value = UInt32(hex, radix: 16), hex.uppercased() != "007AFF" else { return .systemBlue }
+        return UIColor(red: CGFloat((value >> 16) & 255) / 255,
+                       green: CGFloat((value >> 8) & 255) / 255,
+                       blue: CGFloat(value & 255) / 255, alpha: 1)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        guard iPAStoreInteractive else { return }
+        navigationItem.title = "Signing Account"
+        navigationItem.largeTitleDisplayMode = .never
+        if let bar = navigationController?.navigationBar {
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithDefaultBackground()
+            appearance.titleTextAttributes = [.foregroundColor: UIColor.label]
+            bar.barStyle = .default
+            bar.tintColor = .label
+            bar.standardAppearance = appearance
+            bar.compactAppearance = appearance
+            bar.scrollEdgeAppearance = appearance
+        }
+    }
+
     override func viewDidLoad()
     {
         super.viewDidLoad()
 
-        if getenv("IPA_SIGNING_INTERACTIVE") != nil {
+        if iPAStoreInteractive {
             let canvas = UIColor { traits in
                 traits.userInterfaceStyle == .dark ? .systemBackground : UIColor(red: 0.98, green: 0.977, blue: 0.968, alpha: 1)
             }
             self.view.backgroundColor = canvas
-            let hex = ProcessInfo.processInfo.environment["IPA_SIGNING_ACCENT"] ?? "007AFF"
-            let value = UInt32(hex, radix: 16) ?? 0x007AFF
-            let accent = UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
+            let accent = iPAStoreAccent
+            self.scrollView.keyboardDismissMode = .interactive
+            self.scrollView.indicatorStyle = .default
             self.view.tintColor = accent
             func style(_ view: UIView) {
                 if let label = view as? UILabel { label.textColor = .label }
@@ -51,8 +77,8 @@ final class AuthenticationViewController: UIViewController
                 field.textColor = .label; field.tintColor = accent
                 if let placeholder = field.placeholder { field.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: UIColor.secondaryLabel]) }
             }
-            self.signInButton.backgroundColor = accent
-            self.signInButton.setTitleColor(.white, for: .normal)
+            self.signInButton.backgroundColor = .secondarySystemFill
+            self.signInButton.setTitleColor(accent, for: .normal)
         }
         
         // fetch anisette servers asap when loading Auth Screen (if list is empty)
@@ -69,7 +95,7 @@ final class AuthenticationViewController: UIViewController
         }
         
         self.signInButton.activityIndicatorView.style = .medium
-        self.signInButton.activityIndicatorView.color = .white
+        self.signInButton.activityIndicatorView.color = iPAStoreInteractive ? iPAStoreAccent : .white
         
         for view in [self.appleIDBackgroundView!, self.passwordBackgroundView!, self.signInButton!]
         {
@@ -171,7 +197,7 @@ private extension AuthenticationViewController
     {
         guard
             let emailAddress = self.appleIDTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines), !emailAddress.isEmpty,
-            let password = self.passwordTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines), !password.isEmpty
+            let password = self.passwordTextField.text, !password.isEmpty
         else { return nil }
         
         return (emailAddress, password)
@@ -204,17 +230,21 @@ private extension AuthenticationViewController
                     self.signInButton.isIndicatingActivity = false
                 }
 
-            case .failure(let error as NSError):
-                debugLog("AuthenticationViewController: Authentication failed with error: \(error)")
+            case .failure(let error):
                 DispatchQueue.main.async {
-                    let error = error.withLocalizedTitle(NSLocalizedString("Failed to Sign In", comment: ""))
-                    let toastView = ToastView(error: error)
-                    toastView.show(in: self)
-                    toastView.backgroundColor = .white
-                    toastView.textLabel.textColor = .altPrimary
-                    toastView.detailTextLabel.textColor = .altPrimary
-                    self.toastView = toastView
-                    
+                    let details = IPAAccountSignInFailure(error)
+                    let displayError = self.iPAStoreInteractive
+                        ? NSError(domain: "iPAStore.SignIn", code: (error as NSError).code, userInfo: [NSLocalizedDescriptionKey: details.message])
+                            .withLocalizedTitle(details.title)
+                        : (error as NSError).withLocalizedTitle(NSLocalizedString("Failed to Sign In", comment: ""))
+                    let toast = ToastView(error: displayError)
+                    self.toastView?.dismiss()
+                    toast.show(in: self)
+                    toast.backgroundColor = self.iPAStoreInteractive ? .systemGray6 : .white
+                    let textColor: UIColor = self.iPAStoreInteractive ? self.iPAStoreAccent : .altPrimary
+                    toast.textLabel.textColor = textColor
+                    toast.detailTextLabel.textColor = textColor
+                    self.toastView = toast
                     self.signInButton.isIndicatingActivity = false
                 }
                 
@@ -306,4 +336,31 @@ extension AuthenticationViewController
         self.passwordTextField.becomeFirstResponder()
     }
     #endif
+}
+
+
+struct IPAAccountSignInFailure {
+    let title: String
+    let message: String
+
+    init(_ error: Error) {
+        let nsError = error as NSError
+        let reason = nsError.localizedDescription.lowercased()
+        if nsError.code == 503 || reason.contains("503 service temporarily unavailable") {
+            title = "Signing Service Unavailable"
+            message = "Apple sign-in is temporarily unavailable. Try again in a few minutes."
+        } else if nsError.code == -45063 || reason.contains("-45063") {
+            title = "Apple Couldn’t Complete Sign-In"
+            message = "Check your Apple Account in iPhone Settings, complete any verification Apple requests, then try again."
+        } else if let portal = error as? DeveloperPortalError, case .incorrectCredentials = portal {
+            title = "Check Your Apple Account"
+            message = "The email address or password didn’t match. Check both and try again."
+        } else if let portal = error as? DeveloperPortalError, case .incorrectVerificationCode = portal {
+            title = "Verification Code Didn’t Match"
+            message = "Enter the latest code from Apple and try again."
+        } else {
+            title = "Couldn’t Sign In"
+            message = "Check your connection and try again. Complete any verification Apple requests."
+        }
+    }
 }

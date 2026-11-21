@@ -300,6 +300,9 @@ static void IPAGuestRequestedReturn(CFNotificationCenterRef center, void *observ
     
     self.hostScene = self.view.window.windowScene;
     [self.hostScene _registerSettingsDiffActionArray:@[self] forKey:self.sceneID];
+    if ([self.delegate respondsToSelector:@selector(appSceneVCDidAttachContent:)]) {
+        [self.delegate appSceneVCDidAttachContent:self];
+    }
 }
 
 - (void)ipaRemoveReturnObserver {

@@ -44,7 +44,6 @@ struct IPAHistoryList: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                if records.isEmpty { IPAEmptyState(title: query.isEmpty ? (downloaded ? "No Downloads Yet" : "No Recent Apps") : "No Results", subtitle: query.isEmpty ? "Apps you \(downloaded ? "install" : "view") will appear here." : "Try another app or library name.", symbol: downloaded ? "arrow.down.circle" : "clock") }
                 ForEach(records) { record in
                     IPAHistoryRow(record: record).contextMenu {
                         Button("Remove from History", systemImage: "minus.circle", role: .destructive) { history.remove(record, downloaded: downloaded) }
@@ -52,10 +51,20 @@ struct IPAHistoryList: View {
                     Divider().padding(.leading, 72)
                 }
             }.padding(.horizontal, 20).padding(.bottom, 24).frame(maxWidth: 760).frame(maxWidth: .infinity)
-        }.background(IPAStyle.canvas).navigationTitle(downloaded ? "Downloaded Apps" : "Recent Apps").navigationBarTitleDisplayMode(.inline).ipaNativePage()
+        }
+        .overlay {
+            if records.isEmpty {
+                IPACollectionEmptyState(
+                    symbol: query.isEmpty ? (downloaded ? "arrow.down.circle" : "clock") : "magnifyingglass",
+                    message: query.isEmpty ? (downloaded ? "Your downloaded apps appear here." : "Your recent apps appear here.") : "No matching apps."
+                ) {}
+                .allowsHitTesting(false)
+            }
+        }
+        .background(IPAStyle.canvas).navigationTitle(downloaded ? "Downloaded Apps" : "Recent Apps").navigationBarTitleDisplayMode(.inline).ipaNativePage()
             .modifier(IPACollectionSearch(query: $query, presented: $searching))
             .toolbar { ToolbarItem(placement: .topBarTrailing) {
-                Menu { Button("Search", systemImage: "magnifyingglass") { searching = true }; Divider(); Picker("Sort", selection: $order) { Text("Most Recent").tag("recent"); Text("Oldest First").tag("oldest"); Text("Name").tag("name") }.pickerStyle(.inline).labelsHidden() } label: { Image(systemName: "arrow.up.arrow.down") }.accessibilityLabel("Sort history")
+                Menu { Button("Search", systemImage: "magnifyingglass") { searching = true }; Divider(); Picker("Sort", selection: $order) { Text("Most Recent").tag("recent"); Text("Oldest First").tag("oldest"); Text("Name").tag("name") }.pickerStyle(.inline).labelsHidden() } label: { Image(systemName: "line.3.horizontal.decrease") }.accessibilityLabel("Sort history")
             } }
     }
 }
@@ -121,12 +130,22 @@ struct IPACollectionSearch: ViewModifier {
 private struct IPACollectionSearchField: View {
     @Binding var query: String
     @Binding var presented: Bool
+    @State private var editing = false
     let prompt: String
     var body: some View {
         HStack(spacing: 6) {
-            IPACatalogSearchField(text: $query, editing: .constant(false), prompt: prompt, autofocus: true)
+            IPACatalogSearchField(text: $query, editing: $editing, prompt: prompt, autofocus: true)
                 .frame(height: 52)
-            IPACloseSearchButton { query = ""; presented = false }
+            if editing {
+                IPACloseSearchButton(label: "Dismiss keyboard") {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
+            } else {
+                IPACloseSearchButton {
+                    query = ""
+                    presented = false
+                }
+            }
         }.padding(.horizontal, 12).padding(.vertical, 4).frame(maxWidth: 760).frame(maxWidth: .infinity)
             .background(.bar)
     }
@@ -231,11 +250,12 @@ struct IPAArrangeLibraries: View {
 }
 
 struct IPACloseSearchButton: View {
+    var label: LocalizedStringKey = "Close search"
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.primary)
-                .frame(width: 44, height: 44).background(.regularMaterial, in: Circle())
-        }.accessibilityLabel("Close search")
+                .frame(width: 44, height: 44).background(IPAStyle.card, in: Circle())
+        }.accessibilityLabel(label)
     }
 }
