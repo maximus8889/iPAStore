@@ -100,19 +100,23 @@
       },
       {
         "path": "SigningBackend/Authentication/AuthenticationViewController.swift",
-        "sha256": "af204e47d6656ac99221ce25a9adfaed79fcaa854887f621616c42ae920ab28a"
+        "sha256": "a03317404d2bf8c97e357472d79f24aba60c6c0b11e5d5ab25a284ee57bbed26"
       },
       {
         "path": "SigningBackend/Authentication/Authentication.storyboard",
-        "sha256": "c855ff2c0bcbcf8949e14ea0db548201f919c9f05819ee5e2c65f806b32a13a7"
+        "sha256": "34610a80b49bee9aeb4fa024ab8f97a69a62e3f0709bae5d4f09bede5b23d61a"
       },
       {
         "path": "SigningBackend/WidgetAppearance.patch",
         "sha256": "221e4fb29e05774927fca7acdf94c2e65533b8c8ad441c4103c564970d038868"
+      },
+      {
+        "path": "SigningBackend/AccountSignInCompatibility.patch",
+        "sha256": "78c979fa972eeba7ecab25910fc41eba9d3a4f4a711f41bf8f49cd98968fb785"
       }
     ],
     "reconstruction": "Scripts/build_signing_backend.py",
-    "purpose": "iPAStore pairing/signing worker, account-sheet presentation theme and expiration widgets; authentication protocols retained",
+    "purpose": "iPAStore pairing/signing worker, account-sheet presentation, signing service preparation, and expiration widgets",
     "upstream_source_unchanged": false
   },
   "source_archive_note": "Reconstructed from the exact local source checkout used for the bundled backend; private IPAStore additions are included and re-applied by build_signing_backend.py."

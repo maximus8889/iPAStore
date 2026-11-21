@@ -1,0 +1,157 @@
+--- a/SideStore/Core/Anisette/AnisetteConfigManager.swift
++++ b/SideStore/Core/Anisette/AnisetteConfigManager.swift
+@@ -154,8 +154,14 @@
+     }
+ 
++    static func compatibleClientInfo(_ clientInfo: String) -> String {
++        // Keep the OS version and build while using the legacy name accepted by Apple.
++        clientInfo.replacingOccurrences(of: "<macOS;", with: "<Mac OS X;")
++    }
++
+     public func makeRequestHeaders() -> AnisetteRequestHeaders {
+         let config = loadConfig()
+         return AnisetteRequestHeaders().with {
+-            $0.clientInfo = config.clientInfo.isEmpty ? AppConstants.Anisette.defaultClientInfo : config.clientInfo
++            let clientInfo = config.clientInfo.isEmpty ? AppConstants.Anisette.defaultClientInfo : config.clientInfo
++            $0.clientInfo = Self.compatibleClientInfo(clientInfo)
+             $0.userAgent  = config.userAgent.isEmpty ? AppConstants.Anisette.defaultUserAgent : config.userAgent
+             if let customLU = config.customLocalUserID, !customLU.isEmpty { $0.localUserID = customLU }
+--- a/SideStore/Core/Anisette/AnisetteProvider.swift
++++ b/SideStore/Core/Anisette/AnisetteProvider.swift
+@@ -12,15 +12,54 @@
+ enum AnisetteProvider {
+     static func fetch(handler: AnisetteServerHandler? = nil) async throws -> ALTAnisetteData {
+-        if UserDefaults.standard.useOnDeviceAnisette {
++        var data: ALTAnisetteData
++        if getenv("IPA_SIGNING_INTERACTIVE") != nil {
++            data = try await fetchAvailableService()
++        } else if UserDefaults.standard.useOnDeviceAnisette {
+             debugLog("[AnisetteProvider] Fetching anisette via On-Device Anisette (ODA)...")
+-            return try await OnDeviceAnisetteManager.shared.fetchAnisetteData()
++            data = try await OnDeviceAnisetteManager.shared.fetchAnisetteData()
+         } else {
+             debugLog("[AnisetteProvider] Fetching anisette via remote server...")
+-            return try await fetchRemote(handler: handler)
++            data = try await fetchRemote(handler: handler)
++        }
++
++        // A remote provider can return its own client info.
++        data.clientInfo = AnisetteConfigManager.compatibleClientInfo(data.clientInfo)
++        return data
++    }
++
++    private static func fetchAvailableService() async throws -> ALTAnisetteData {
++        let useOnDevice = UserDefaults.standard.useOnDeviceAnisette
++        do {
++            if useOnDevice {
++                return try await OnDeviceAnisetteManager.shared.fetchAnisetteData()
++            }
++            return try await fetchRemote(refreshServerList: true)
++        } catch {
++            try Task.checkCancellation()
++            // Provision separately when switching services. A saved blob belongs to its provider.
++            let data: ALTAnisetteData
++            if useOnDevice {
++                data = try await fetchRemote(refreshServerList: true, reuseProvisioning: false)
++            } else {
++                data = try await OnDeviceAnisetteManager.shared.fetchAnisetteData(reuseProvisioning: false)
++            }
++            // Use the provider that issued the signing data for future renewals.
++            UserDefaults.standard.useOnDeviceAnisette = !useOnDevice
++            return data
+         }
+     }
+ 
+-    private static func fetchRemote(handler: AnisetteServerHandler? = nil) async throws -> ALTAnisetteData {
+-        let serverUrlStrings = await AnisetteServersManager.shared.getActiveServerURLs()
++    private static func fetchRemote(
++        handler: AnisetteServerHandler? = nil,
++        refreshServerList: Bool = false,
++        reuseProvisioning: Bool = true
++    ) async throws -> ALTAnisetteData {
++        let manager = AnisetteServersManager.shared
++        var serverUrlStrings = await manager.getActiveServerURLs()
++        if serverUrlStrings.isEmpty && refreshServerList {
++            let source = UserDefaults.standard.menuAnisetteList
++            _ = try await manager.syncWithRemote(sourceURLString: source, forceRemote: true)
++            serverUrlStrings = await manager.getActiveServerURLs()
++        }
+         let servers = serverUrlStrings.compactMap { URL(string: $0) }
+         guard !servers.isEmpty else {
+@@ -32,5 +71,6 @@
+ 
+         let provider = SideSign.AnisetteDataManager.shared
+-        let existingBlob = AnisetteConfigManager.shared.anisetteAdiBlob.flatMap { Data(base64Encoded: $0) }
++        let savedBlob = reuseProvisioning ? AnisetteConfigManager.shared.anisetteAdiBlob : nil
++        let existingBlob = savedBlob.flatMap { Data(base64Encoded: $0) }
+         let identifier = await AnisetteConfigManager.shared.resolveDeviceIdentifier()
+         let headers = await AnisetteConfigManager.shared.makeRequestHeaders()
+@@ -66,4 +106,6 @@
+         if let freshBlob = newAdiBlob {
+             AnisetteConfigManager.shared.anisetteAdiBlob = freshBlob.base64EncodedString()
++        } else if !reuseProvisioning {
++            AnisetteConfigManager.shared.anisetteAdiBlob = nil
+         }
+ 
+--- a/SideStore/Core/Anisette/OnDeviceAnisetteManager.swift
++++ b/SideStore/Core/Anisette/OnDeviceAnisetteManager.swift
+@@ -44,5 +44,5 @@
+     }
+ 
+-    public func fetchAnisetteData() async throws -> ALTAnisetteData {
++    public func fetchAnisetteData(reuseProvisioning: Bool = true) async throws -> ALTAnisetteData {
+         debugLog("[OnDeviceAnisetteManager] [Fetch] Fetching on-device Anisette headers...")
+ 
+@@ -50,5 +50,5 @@
+ 
+         var existingAdiPbData: Data? = nil
+-        if let base64Blob = AnisetteConfigManager.shared.anisetteAdiBlob,
++        if reuseProvisioning, let base64Blob = AnisetteConfigManager.shared.anisetteAdiBlob,
+            let decoded = Data(base64Encoded: base64Blob, options: .ignoreUnknownCharacters),
+            !decoded.isEmpty {
+--- a/SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift
++++ b/SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift
+@@ -123,4 +123,12 @@
+         self.verboseLog("[SignInOperation] authenticationLoop: Requesting credentials...")
+         let handler = self.signInHandler
++        var preparation: Task<(data: ALTAnisetteData, preparedAt: TimeInterval), Error>?
++        if getenv("IPA_SIGNING_INTERACTIVE") != nil {
++            preparation = Task {
++                let data = try await self.getAnisetteData()
++                return (data, ProcessInfo.processInfo.systemUptime)
++            }
++        }
++        defer { preparation?.cancel() }
+         
+         while true {
+@@ -129,5 +137,17 @@
+             
+             do {
+-                let (account, session) = try await self.signIn(appleID: appleID, password: password)
++                let check = preparation
++                preparation = nil
++                let anisetteData: ALTAnisetteData
++                if let prepared = try await check?.value,
++                   ProcessInfo.processInfo.systemUptime - prepared.preparedAt < 20 {
++                    anisetteData = prepared.data
++                } else {
++                    anisetteData = try await self.getAnisetteData()
++                }
++                if self.isCancelled { throw OperationError.cancelled }
++                let (account, session) = try await self.signIn(
++                    appleID: appleID, password: password, anisetteData: anisetteData
++                )
+                 self.debugLog("[SignInOperation] authenticationLoop: signIn succeeded.")
+                 
+@@ -143,8 +163,8 @@
+     }
+     
+-    private func signIn(appleID: String, password: String) async throws -> (ALTAccount, ALTAppleAPISession) {
++    private func signIn(
++        appleID: String, password: String, anisetteData: ALTAnisetteData
++    ) async throws -> (ALTAccount, ALTAppleAPISession) {
+         self.appleIDEmailAddress = appleID
+-        
+-        let anisetteData = try await self.getAnisetteData()
+         let handler = self.signInHandler
+         

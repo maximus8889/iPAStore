@@ -83,15 +83,17 @@ final class AuthenticationViewController: UIViewController
             self.signInButton.setTitleColor(accent, for: .normal)
         }
         
-        // fetch anisette servers asap when loading Auth Screen (if list is empty)
-        Task {
-            if await AnisetteServersManager.shared.getActiveServerURLs().isEmpty {
-                let sourceURL = UserDefaults.standard.menuAnisetteList
-                do {
-                    _ = try await AnisetteServersManager.shared.syncWithRemote(sourceURLString: sourceURL, forceRemote: true)
-                    debugLog("AuthenticationViewController: Server list refresh request completed for sourceURL: \(sourceURL)")
-                } catch {
-                    debugLog("AuthenticationViewController: Server list refresh request Failed for sourceURL: \(sourceURL) Error: \(error)")
+        if !iPAStoreInteractive {
+            // The iPAStore sign-in operation prepares the signing service separately.
+            Task {
+                if await AnisetteServersManager.shared.getActiveServerURLs().isEmpty {
+                    let sourceURL = UserDefaults.standard.menuAnisetteList
+                    do {
+                        _ = try await AnisetteServersManager.shared.syncWithRemote(sourceURLString: sourceURL, forceRemote: true)
+                        debugLog("AuthenticationViewController: Server list refresh request completed for sourceURL: \(sourceURL)")
+                    } catch {
+                        debugLog("AuthenticationViewController: Server list refresh request Failed for sourceURL: \(sourceURL) Error: \(error)")
+                    }
                 }
             }
         }
