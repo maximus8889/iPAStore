@@ -18,6 +18,7 @@ struct IPAPillStyle: ButtonStyle {
     var compact = false
     var alwaysFilled = false
     var minimumHeight: CGFloat? = nil
+    var fillsWidth = false
     @AppStorage("IPAFilledButtons") private var filledButtons = false
     @AppStorage("IPAAccentHex") private var accentHex = "systemBlue"
     @Environment(\.isEnabled) private var enabled
@@ -26,9 +27,10 @@ struct IPAPillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let filled = alwaysFilled || (prominent && filledButtons)
         return configuration.label.ipaFont(.subheadline, weight: .semibold)
-            .lineLimit(1).fixedSize(horizontal: true, vertical: true)
+            .lineLimit(fillsWidth ? 2 : 1).fixedSize(horizontal: !fillsWidth, vertical: true)
+            .multilineTextAlignment(.center)
             .foregroundStyle(filled ? IPAAppearance.buttonForeground(accentHex) : IPAAppearance.accent(accentHex))
-            .padding(.horizontal, compact ? 13 : 18).frame(minWidth: 66, minHeight: minimumHeight ?? (compact ? 30 : 34))
+            .padding(.horizontal, compact ? 13 : 18).frame(minWidth: 66, maxWidth: fillsWidth ? .infinity : nil, minHeight: minimumHeight ?? (compact ? 30 : 34))
             .background(filled ? IPAAppearance.accent(accentHex) : Color(uiColor: scheme == .dark ? .tertiarySystemFill : .secondarySystemFill), in: Capsule())
             .opacity(enabled ? (configuration.isPressed ? 0.82 : 1) : 0.5)
             .animation(IPAMotion.press(configuration.isPressed, reduced: reduceMotion), value: configuration.isPressed)

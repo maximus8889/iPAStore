@@ -197,7 +197,7 @@ struct IPAUpdatesView: View {
                     Text(checking ? "Checking…" : "Check for Updates")
                 }
             }
-            .buttonStyle(IPAPillStyle(prominent: true, minimumHeight: 44))
+            .buttonStyle(IPAPillStyle(prominent: true, minimumHeight: 54, fillsWidth: true))
             .disabled(work != nil)
         }
         .padding(20).frame(maxWidth: .infinity, alignment: .leading)

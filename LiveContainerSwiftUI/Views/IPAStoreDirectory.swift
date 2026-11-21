@@ -330,18 +330,19 @@ struct IPAStorePage: View {
                     }
                 }
                 Divider()
+                let website = reference.suggestion?.webURL ?? reference.url
                 HStack(alignment: .center, spacing: 14) {
                     if !entries.isEmpty {
                         fact("APPS", "\(entries.count)")
                         Divider().frame(height: 34)
                     }
-                    IPAWebLink(destination: reference.suggestion?.webURL ?? reference.url) {
-                        fact("WEB", "Open")
+                    IPAWebLink(destination: website) {
+                        fact("WEB", website.host ?? website.absoluteString, lines: 2)
                     }
                     .buttonStyle(IPAControlPressStyle())
                     Divider().frame(height: 34)
                     IPAWebLink(destination: reference.publisher ?? source?.website ?? reference.url) {
-                        fact("DEVELOPER", reference.suggestion?.developer ?? reference.publisher?.host ?? source?.website?.host ?? reference.name)
+                        fact("DEVELOPER", reference.suggestion?.developer ?? reference.publisher?.host ?? source?.website?.host ?? reference.name, lines: 2)
                     }
                     .buttonStyle(IPAControlPressStyle())
                 }.frame(height: metadataHeight).clipped()
@@ -383,13 +384,14 @@ struct IPAStorePage: View {
                 else { await discovery.reload(reference) }
             }
     }
-    private func fact(_ title: LocalizedStringKey, _ value: String) -> some View {
+    private func fact(_ title: LocalizedStringKey, _ value: String, lines: Int = 1) -> some View {
         VStack(spacing: 4) {
             Text(title).ipaFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
+                .layoutPriority(1)
             Text(value).ipaFont(.title3, weight: .semibold).foregroundStyle(.primary)
-                .lineLimit(1).minimumScaleFactor(0.75)
+                .lineLimit(lines).minimumScaleFactor(0.75)
         }
-        .frame(maxWidth: .infinity, minHeight: metadataHeight)
+        .frame(maxWidth: .infinity, minHeight: metadataHeight, maxHeight: metadataHeight)
         .multilineTextAlignment(.center)
         .contentShape(Rectangle())
     }

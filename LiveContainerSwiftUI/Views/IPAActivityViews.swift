@@ -159,39 +159,24 @@ struct IPACollectionSearchField: View {
 }
 
 
-struct IPACollectionSortSheet<Option: Hashable>: View {
+struct IPACollectionSortSheet<Option: Hashable, Arrangement: View>: View {
     @Binding var selection: Option
     let options: [Option]
     let title: (Option) -> String
+    @ViewBuilder let arrangement: () -> Arrangement
 
     var body: some View {
         Form {
-            Picker("Sort", selection: $selection) {
-                ForEach(options, id: \.self) { Text(title($0)).tag($0) }
-            }.pickerStyle(.inline).labelsHidden()
+            Section {
+                Picker("Sort", selection: $selection) {
+                    ForEach(options, id: \.self) { Text(title($0)).tag($0) }
+                }.pickerStyle(.inline).labelsHidden()
+            }
+            arrangement()
         }
-        .presentationDetents([.medium, .large])
+        .environment(\.editMode, .constant(.active))
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-    }
-}
-
-struct IPAArrangeCollectionButton: View {
-    let title: LocalizedStringKey
-    let action: () -> Void
-
-    init(_ title: LocalizedStringKey, action: @escaping () -> Void) {
-        self.title = title
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: "line.3.horizontal")
-                .ipaFont(.subheadline, weight: .semibold)
-                .frame(minHeight: 44, alignment: .leading)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.tint)
     }
 }
 
@@ -234,26 +219,25 @@ enum IPAStoreSort: String, CaseIterable {
 struct IPAArrangeLibraries: View {
     let items: [AltStoreSourcesViewModel.SourceItem]
     let onReorder: ([String]) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var ordered: [AltStoreSourcesViewModel.SourceItem] = []
+
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(ordered) { item in
-                    HStack(spacing: 12) { IPAStoreArtwork(source: item.source, reference: IPAStoreReference(item), size: 40); Text(IPAStoreDirectory.title(for: item)).lineLimit(1) }
-                }.onMove { from, to in
-                    let previous = ordered.map(\.id)
-                    ordered.move(fromOffsets: from, toOffset: to)
-                    guard ordered.map(\.id) != previous else { return }
-                    onReorder(ordered.map { IPAStoreDirectory.canonical($0.url) })
+        if !items.isEmpty {
+            Section {
+                ForEach(items) { item in
+                    HStack(spacing: 12) {
+                        IPAStoreArtwork(source: item.source, reference: IPAStoreReference(item), size: 40)
+                        Text(IPAStoreDirectory.title(for: item)).lineLimit(1)
+                    }
+                    .moveDisabled(items.count < 2)
+                }
+                .onMove { offsets, destination in
+                    var reordered = items
+                    reordered.move(fromOffsets: offsets, toOffset: destination)
+                    guard reordered.map(\.id) != items.map(\.id) else { return }
+                    onReorder(reordered.map { IPAStoreDirectory.canonical($0.url) })
                 }
             }
-                .listStyle(.plain).scrollContentBackground(.hidden).background(IPAStyle.canvas)
-                .environment(\.editMode, .constant(.active))
-                .navigationTitle("Arrange Stores").navigationBarTitleDisplayMode(.inline).ipaNativePage()
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-                .onAppear { ordered = items }
-        }.ipaTallSheet().modifier(IPATheme())
+        }
     }
 }
 

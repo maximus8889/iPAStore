@@ -6,37 +6,26 @@
 //
 import SwiftUI
 
-struct LCCustomSortView: View {
+struct LCCustomSortRows: View {
     @EnvironmentObject private var sharedModel: SharedModel
-    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var manager = LCAppSortManager.shared
     @AppStorage("darkModeIcon", store: LCUtils.appGroupUserDefault) private var darkModeIcon = false
 
-    @State private var localApps: [LCAppModel] = []
-    @State private var localHiddenApps: [LCAppModel] = []
-
     var body: some View {
-        NavigationStack {
-            List {
-                appRows($localApps)
-                if sharedModel.isHiddenAppUnlocked && !localHiddenApps.isEmpty {
-                    Section("lc.appList.hiddenApps".loc) { appRows($localHiddenApps) }
-                }
-            }
-            .listStyle(.plain).scrollContentBackground(.hidden).background(IPAStyle.canvas)
-            .navigationTitle("Arrange Apps").navigationBarTitleDisplayMode(.inline).ipaNativePage()
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .environment(\.editMode, .constant(.active))
+        let visibleSort = manager.customSortOrder.isEmpty ? manager.appSortType : .custom
+        let hiddenSort = sharedModel.isHiddenAppUnlocked ? visibleSort : .custom
+        let apps = manager.getSortedApps(sharedModel.apps, sortType: visibleSort, customSortOrder: manager.customSortOrder)
+        let hiddenApps = manager.getSortedApps(sharedModel.hiddenApps, sortType: hiddenSort, customSortOrder: manager.customSortOrder)
+        if !apps.isEmpty {
+            Section { appRows(apps) { save(visible: $0, hidden: hiddenApps) } }
         }
-        .ipaTallSheet()
-        .onAppear(perform: initializeLocalState)
+        if sharedModel.isHiddenAppUnlocked && !hiddenApps.isEmpty {
+            Section("lc.appList.hiddenApps".loc) { appRows(hiddenApps) { save(visible: apps, hidden: $0) } }
+        }
     }
 
-    private func appRows(_ apps: Binding<[LCAppModel]>) -> some View {
-        ForEach(apps.wrappedValue, id: \.self) { app in
+    private func appRows(_ apps: [LCAppModel], onReorder: @escaping ([LCAppModel]) -> Void) -> some View {
+        ForEach(apps, id: \.self) { app in
             HStack {
                 IconImageView(icon: app.appInfo.iconIsDarkIcon(darkModeIcon))
                     .frame(width: 60, height: 60)
@@ -52,24 +41,17 @@ struct LCCustomSortView: View {
                 Spacer()
             }
             .padding(.vertical, 4)
+            .moveDisabled(apps.count < 2)
         }
         .onMove { source, destination in
-            let previous = apps.wrappedValue
-            apps.wrappedValue.move(fromOffsets: source, toOffset: destination)
-            if apps.wrappedValue != previous { saveChanges() }
+            var reordered = apps
+            reordered.move(fromOffsets: source, toOffset: destination)
+            if reordered != apps { onReorder(reordered) }
         }
     }
 
-    private func initializeLocalState() {
-        let manager = LCAppSortManager.shared
-        localApps = manager.getSortedApps(sharedModel.apps, sortType: manager.appSortType, customSortOrder: manager.customSortOrder)
-        let hiddenSort = sharedModel.isHiddenAppUnlocked ? manager.appSortType : .custom
-        localHiddenApps = manager.getSortedApps(sharedModel.hiddenApps, sortType: hiddenSort, customSortOrder: manager.customSortOrder)
-    }
-
-    private func saveChanges() {
-        let manager = LCAppSortManager.shared
-        manager.customSortOrder = (localApps + localHiddenApps).compactMap { manager.getUniqueIdentifier(for: $0) }
+    private func save(visible: [LCAppModel], hidden: [LCAppModel]) {
+        manager.customSortOrder = (visible + hidden).compactMap { manager.getUniqueIdentifier(for: $0) }
         manager.appSortType = .custom
     }
 }

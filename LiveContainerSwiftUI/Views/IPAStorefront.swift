@@ -9,7 +9,7 @@ enum IPAStyle {
     static let canvas = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark ? UIColor.systemBackground.resolvedColor(with: traits) : UIColor(red: 0.98, green: 0.977, blue: 0.968, alpha: 1)
     })
-    static let productCanvas = canvas
+    static let productCanvas = Color(uiColor: .systemGray6)
     static let card = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .secondarySystemGroupedBackground : .white })
     static let storeSymbol = "rectangle.stack"
     static let appsSymbol = "square.grid.2x2"
@@ -558,7 +558,6 @@ struct IPAStoresView: View {
     @State private var query = ""
     @State private var searching = false
     @State private var sorting = false
-    @State private var showingArrangement = false
     @AppStorage("IPASourceSort") private var sourceSort = IPAStoreSort.defaultOrder.rawValue
     @AppStorage("IPASourceOrder") private var sourceOrder = "[]"
 
@@ -599,9 +598,6 @@ struct IPAStoresView: View {
                                 .ipaFont(.subheadline).foregroundStyle(.secondary)
                         }
                     }
-                    if !catalog.sources.isEmpty && !searching {
-                        IPAArrangeCollectionButton("Arrange Stores") { showingArrangement = true }
-                    }
                     ForEach(visibleSources) { item in
                         VStack(alignment: .leading, spacing: 8) {
                             IPALibraryCard(reference: IPAStoreReference(item), source: item.source, subtitle: item.source.flatMap { $0.apps.isEmpty ? nil : "\($0.apps.count) \($0.apps.count == 1 ? "app" : "apps")" } ?? (item.error == nil ? "App library" : "Unavailable · see update details"))
@@ -639,13 +635,13 @@ struct IPAStoresView: View {
                 }
                 .sheet(isPresented: $sorting) {
                     IPACollectionSortSheet(selection: Binding(get: { selectedSort }, set: { sourceSort = $0.rawValue }),
-                                           options: IPAStoreSort.allCases, title: \.title)
-                }
-                .sheet(isPresented: $showingArrangement) {
-                    IPAArrangeLibraries(items: sortedSources) { order in
-                        if let data = try? JSONEncoder().encode(order) {
-                            sourceOrder = String(decoding: data, as: UTF8.self)
-                            sourceSort = IPAStoreSort.custom.rawValue
+                                           options: IPAStoreSort.allCases, title: \.title) {
+                        let order = sourceOrder == "[]" ? selectedSort : .custom
+                        IPAArrangeLibraries(items: order.ordered(catalog.sources, savedOrder: sourceOrder)) { ids in
+                            if let data = try? JSONEncoder().encode(ids) {
+                                sourceOrder = String(decoding: data, as: UTF8.self)
+                                sourceSort = IPAStoreSort.custom.rawValue
+                            }
                         }
                     }
                 }
@@ -959,14 +955,11 @@ struct IPAProductView: View {
                     }.padding(.vertical, 14)
                 }.buttonStyle(IPAControlPressStyle(scale: 0.985)).foregroundStyle(.tint)
                 if let score = storeRating {
-                    Divider()
                     ratingsSection(score: score.score, count: score.count)
                 }
                 if let notes = releaseNotes {
-                    Divider()
                     whatsNew(notes)
                 }
-                Divider()
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Information").ipaFont(.title2, weight: .bold).padding(.bottom, 8)
                     if let developer = IPACatalogPresentation.displayValue(app.developerName) { information("Developer", developer) }
@@ -1313,7 +1306,7 @@ private struct IPAScreenshotPage: View {
     var body: some View {
         GeometryReader { geometry in
             IPARemoteImage(url: url, pixels: 1600, mode: .fit, showsPlaceholder: false).frame(width: geometry.size.width, height: geometry.size.height)
-        }.background(IPAStyle.productCanvas).navigationBarTitleDisplayMode(.inline).ipaNativePage()
+        }.background(IPAStyle.canvas).navigationBarTitleDisplayMode(.inline).ipaNativePage()
     }
 }
 
@@ -1348,7 +1341,7 @@ struct IPASettingsView: View {
                     IPASettingsGroup(title: nil) {
                         Link(destination: URL(string: "https://discord.gg/EQ77PXQQgt")!) { IPASettingsRow("Community", subtitle: "Help, ideas and updates", symbol: "bubble.left.and.bubble.right.fill", color: .mint) }
                         IPASettingsDivider()
-                        NavigationLink { IPAHowItWorksView() } label: { IPASettingsRow("How iPAStore Works", subtitle: "Installing, signing and opening apps", symbol: "book.closed.fill", color: .purple) }
+                        NavigationLink { IPAHowItWorksView() } label: { IPASettingsRow("How iPAStore Works", subtitle: "Installing and signing", symbol: "book.closed.fill", color: .purple) }
                         IPASettingsDivider()
                         Button { showWelcome = true } label: { IPASettingsRow("Open Welcome", subtitle: "Revisit the setup guide", symbol: "hand.wave.fill", color: .indigo) }
                     }

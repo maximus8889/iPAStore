@@ -76,7 +76,6 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
     
     @State private var helpPresent = false
     
-    @State private var customSortViewPresent = false
     @State private var sortingApps = false
     @State private var showingUpdates = false
     @EnvironmentObject private var catalog: AltStoreSourcesViewModel
@@ -185,11 +184,6 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                         if installprogressVisible {
                             ProgressView().accessibilityLabel("Importing app")
                         }
-                    }
-                    if sharedModel.multiLCStatus != 2, !collectionSearch,
-                       !sortedApps.isEmpty || (sharedModel.isHiddenAppUnlocked && !sortedHiddenApps.isEmpty) {
-                        IPAArrangeCollectionButton("Arrange Apps") { customSortViewPresent = true }
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }.padding(.horizontal, 20).padding(.top, 8).frame(maxWidth: 760).frame(maxWidth: .infinity)
                 NavigationLink(
@@ -446,12 +440,11 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
         .sheet(isPresented: $helpPresent) {
             LCHelpView(isPresent: $helpPresent)
         }
-        .sheet(isPresented: $customSortViewPresent) {
-            LCCustomSortView()
-        }
         .sheet(isPresented: $sortingApps) {
             IPACollectionSortSheet(selection: $sharedAppSortManager.appSortType,
-                                   options: AppSortType.allCases, title: \.displayName)
+                                   options: AppSortType.allCases, title: \.displayName) {
+                LCCustomSortRows()
+            }
         }
         .sheet(isPresented: $showingUpdates) {
             IPAInstalledAppUpdates(apps: sortedApps.filter { !$0.uiIsHidden && !$0.uiIsLocked },
