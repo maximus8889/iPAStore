@@ -175,7 +175,8 @@ struct IPACollectionSortSheet<Option: Hashable, Arrangement: View>: View {
             arrangement()
         }
         .environment(\.editMode, .constant(.active))
-        .presentationDetents([.large])
+        .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
     }
 }

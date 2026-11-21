@@ -104,7 +104,7 @@
       },
       {
         "path": "SigningBackend/Authentication/Authentication.storyboard",
-        "sha256": "0ca3db806a8fbc4f5244dc6fb35f3961ed3049ee60f630615afc370698937315"
+        "sha256": "34610a80b49bee9aeb4fa024ab8f97a69a62e3f0709bae5d4f09bede5b23d61a"
       },
       {
         "path": "SigningBackend/WidgetAppearance.patch",

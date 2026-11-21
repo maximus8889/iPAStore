@@ -612,6 +612,7 @@ struct IPAStoresView: View {
                 .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 40)
                 .frame(maxWidth: 760).frame(maxWidth: .infinity)
             }
+            .refreshable { await refreshLibraries() }
             .onChange(of: searching) { _, shown in if shown { proxy.scrollTo("stores-heading", anchor: .top) } }
             .scrollDismissesKeyboard(.interactively)
             .overlay {
@@ -647,7 +648,6 @@ struct IPAStoresView: View {
                 }
                 .navigationDestination(isPresented: $suggestions) { IPASuggestionsView() }
                 .navigationDestination(for: IPAStoreReference.self) { IPAStorePage(reference: $0) }
-                .refreshable { await refreshLibraries() }
             }
         }
         .sheet(isPresented: $refreshDetails) { IPALibraryRefreshDetails() }
