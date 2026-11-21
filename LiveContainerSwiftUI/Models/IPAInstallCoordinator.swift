@@ -753,7 +753,7 @@ private struct IPASigningHelpSheet: View {
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Go to Settings and select a way to sign apps.")
+            Text("Select a way to sign apps")
                 .ipaFont(.title3, weight: .bold)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Go to Settings", action: openSettings)
