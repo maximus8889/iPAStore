@@ -4,9 +4,11 @@ Your apps. One beautiful home.
 
 [Website](https://maximus8889.github.io/iPAStore/) · [Releases & complete source](https://github.com/maximus8889/iPAStore/releases) · [Community](https://discord.gg/EQ77PXQQgt)
 
-## Update 160
+## Update 164
 
-Arrange apps and stores directly from Sort, browse cleaner app details, and check for updates with a larger button.
+Free Signing checks which signing service is available in the background when you open the Apple Account form. Sign in once and continue through Apple’s verification.
+
+[Download iPAStore 164](https://github.com/maximus8889/iPAStore/releases/download/v1.0.0-build164/iPAStore.ipa) · [Release notes and source](https://github.com/maximus8889/iPAStore/releases/tag/v1.0.0-build164)
 
 The website is temporarily in maintenance mode. The IPA, complete source, and release notes are hosted on GitHub Releases.
 
