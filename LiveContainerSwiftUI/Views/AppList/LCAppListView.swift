@@ -168,8 +168,7 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                         IPATabHeading("Apps")
                             .padding(.trailing, 54).frame(maxWidth: .infinity, alignment: .leading)
                             .id("apps-heading")
-                        IPACollectionSearchField(query: $searchContext.query, presented: $collectionSearch)
-                            .padding(.horizontal, -8)
+                        IPACollectionSearchField(query: $searchContext.query, presented: $collectionSearch, belowTabHeading: true)
                         if let failed = installer.jobs.first(where: { $0.failure != nil }) {
                             Button { installer.showFailure(failed.id) } label: {
                                 Label("Some apps need attention", systemImage: "exclamationmark.circle")

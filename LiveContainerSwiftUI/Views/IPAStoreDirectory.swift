@@ -336,20 +336,14 @@ struct IPAStorePage: View {
                         Divider().frame(height: 34)
                     }
                     IPAWebLink(destination: reference.suggestion?.webURL ?? reference.url) {
-                        VStack(alignment: .center, spacing: 4) {
-                            Text("WEB").ipaFont(.caption2, weight: .semibold).opacity(0.74)
-                            Image(systemName: "globe").ipaFont(.title3)
-                            Text("Open").ipaFont(.caption).lineLimit(1)
-                        }.frame(maxWidth: .infinity, minHeight: metadataHeight)
-                            .modifier(IPACollectionActionTile())
+                        fact("WEB", "Open")
                     }
+                    .buttonStyle(IPAControlPressStyle())
+                    Divider().frame(height: 34)
                     IPAWebLink(destination: reference.publisher ?? source?.website ?? reference.url) {
-                        VStack(alignment: .center, spacing: 4) {
-                            Text("DEVELOPER").ipaFont(.caption2, weight: .semibold).opacity(0.74)
-                            Text(reference.suggestion?.developer ?? reference.publisher?.host ?? source?.website?.host ?? reference.name).ipaFont(.caption).lineLimit(3).truncationMode(.tail).multilineTextAlignment(.center)
-                        }.frame(maxWidth: .infinity, minHeight: metadataHeight)
-                            .modifier(IPACollectionActionTile())
+                        fact("DEVELOPER", reference.suggestion?.developer ?? reference.publisher?.host ?? source?.website?.host ?? reference.name)
                     }
+                    .buttonStyle(IPAControlPressStyle())
                 }.frame(height: metadataHeight).clipped()
                 Divider()
                 if reference.suggestion?.marketplaceOnly == true {
@@ -389,11 +383,15 @@ struct IPAStorePage: View {
                 else { await discovery.reload(reference) }
             }
     }
-    private func fact(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .center, spacing: 4) {
+    private func fact(_ title: LocalizedStringKey, _ value: String) -> some View {
+        VStack(spacing: 4) {
             Text(title).ipaFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
-            Text(value).ipaFont(.title3, weight: .semibold).lineLimit(1)
-        }.frame(maxWidth: .infinity).multilineTextAlignment(.center)
+            Text(value).ipaFont(.title3, weight: .semibold).foregroundStyle(.primary)
+                .lineLimit(1).minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, minHeight: metadataHeight)
+        .multilineTextAlignment(.center)
+        .contentShape(Rectangle())
     }
 }
 

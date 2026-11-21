@@ -59,16 +59,6 @@ struct IPAFontChoice: Identifiable {
         .init(id: "pixel", name: "Monocraft", postScript: "Monocraft")
     ]
     static func face(for id: String) -> String? { choices.first { $0.id == id }?.postScript }
-
-    var previewFont: Font {
-        if let postScript { return .custom(postScript, size: 17, relativeTo: .body) }
-        switch id {
-        case "rounded": return .system(.body, design: .rounded)
-        case "serif": return .system(.body, design: .serif)
-        case "mono": return .system(.body, design: .monospaced)
-        default: return .system(.body, design: .default)
-        }
-    }
 }
 
 enum IPAAppSubtitle: String, CaseIterable, Identifiable {
@@ -283,38 +273,70 @@ private struct IPAFontPicker: View {
                 selection = choice.id
             } label: {
                 HStack {
-                    Text(choice.name).font(choice.previewFont).foregroundStyle(.primary)
+                    IPAFontSample(choice: choice).accessibilityHidden(true)
                     Spacer()
                     if selection == choice.id {
                         Image(systemName: "checkmark").foregroundStyle(.tint).accessibilityHidden(true)
                     }
                 }.frame(minHeight: 32).contentShape(Rectangle())
             }.buttonStyle(.plain)
+                .accessibilityLabel(choice.name)
                 .accessibilityAddTraits(selection == choice.id ? .isSelected : [])
         }.navigationTitle("Font").navigationBarTitleDisplayMode(.inline).ipaNativePage()
     }
 }
 
-struct IPACollectionControlIcon: View {
-    let symbol: String
-    @AppStorage("IPAFilledButtons") private var filled = false
-    @Environment(\.ipaAccent) private var accent
+// Render a concrete font for each sample. The app-wide SwiftUI font design
+// is inherited by the picker, so it must not supply the font for these labels.
+private struct IPAFontSample: UIViewRepresentable {
+    let choice: IPAFontChoice
+    @ScaledMetric(relativeTo: .body) private var pointSize: CGFloat = 17
 
-    var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 20, weight: .medium))
-            .foregroundStyle(filled ? accent : Color.primary)
+    func makeUIView(context: Context) -> UILabel {
+        let label = UILabel()
+        label.textColor = .label
+        label.isAccessibilityElement = false
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return label
+    }
+
+    func updateUIView(_ label: UILabel, context: Context) {
+        label.text = choice.name
+        if let name = choice.postScript, let font = UIFont(name: name, size: pointSize) {
+            label.font = font
+        } else {
+            let systemFont = UIFont.systemFont(ofSize: pointSize)
+            let design: UIFontDescriptor.SystemDesign
+            switch choice.id {
+            case "rounded": design = .rounded
+            case "serif": design = .serif
+            case "mono": design = .monospaced
+            default: design = .default
+            }
+            label.font = UIFont(descriptor: systemFont.fontDescriptor.withDesign(design) ?? systemFont.fontDescriptor,
+                                size: pointSize)
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UILabel, context: Context) -> CGSize? {
+        let size = uiView.intrinsicContentSize
+        return CGSize(width: min(size.width, proposal.width ?? size.width), height: size.height)
     }
 }
 
-struct IPACollectionActionTile: ViewModifier {
+struct IPACollectionControlIcon: View {
+    let symbol: String
+    var pointSize: CGFloat = 20
     @AppStorage("IPAFilledButtons") private var filled = false
-    @AppStorage("IPAAccentHex") private var hex = "systemBlue"
+    @Environment(\.ipaAccent) private var accent
 
-    func body(content: Content) -> some View {
-        content
-            .foregroundStyle(filled ? IPAAppearance.buttonForeground(hex) : Color.primary)
-            .background(filled ? IPAAppearance.accent(hex) : IPAStyle.card, in: RoundedRectangle(cornerRadius: 13))
+    static var plus: Self { Self(symbol: "plus", pointSize: 24) }
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: pointSize, weight: .medium))
+            .foregroundStyle(filled ? accent : Color.primary)
     }
 }
 
@@ -323,7 +345,6 @@ private struct IPAIconPicker: View {
     @State private var current = UIApplication.shared.alternateIconName
     @State private var changing = false
     @State private var error: String?
-    @State private var iconChanged = false
     private let choices: [(String, String?, String)] = [("Automatic", nil, "IconPreviewDefault"), ("Light", "AppIconLight", "IconPreviewLight"), ("Midnight", "AppIconMidnight", "IconPreviewMidnight"),
         ("Ocean", "AppIconOcean", "IconPreviewOcean"), ("Jade", "AppIconJade", "IconPreviewJade"),
         ("Iris", "AppIconIris", "IconPreviewIris"), ("Ember", "AppIconEmber", "IconPreviewEmber"),
@@ -339,7 +360,6 @@ private struct IPAIconPicker: View {
                     }
                     guard current != icon else { return }
                     changing = true
-                    iconChanged = false
                     Task { @MainActor in
                         defer { changing = false }
                         do {
@@ -350,7 +370,6 @@ private struct IPAIconPicker: View {
                                 return
                             }
                             IPAFeedback.confirmationHaptic()
-                            iconChanged = true
                         } catch {
                             self.error = "The icon couldn’t be changed. Try again while iPAStore is open."
                         }
@@ -366,15 +385,6 @@ private struct IPAIconPicker: View {
                 }.buttonStyle(IPAControlPressStyle(scale: 0.985)).disabled(changing)
             }
         }.navigationTitle("App Icon").navigationBarTitleDisplayMode(.inline).ipaNativePage()
-            .safeAreaInset(edge: .bottom) {
-                if iconChanged {
-                    Label("Icon successfully changed!", systemImage: "checkmark.circle.fill")
-                        .ipaFont(.subheadline, weight: .semibold)
-                        .padding(.horizontal, 18).padding(.vertical, 12)
-                        .background(.regularMaterial, in: Capsule())
-                        .padding(.bottom, 8)
-                }
-            }
             .alert("App Icon", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
     }
 }

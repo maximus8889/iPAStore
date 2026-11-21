@@ -14,6 +14,7 @@ enum IPAStyle {
     static let storeSymbol = "rectangle.stack"
     static let appsSymbol = "square.grid.2x2"
     static let inset: CGFloat = 20
+    static let tabCollectionButtonSize: CGFloat = 46
 }
 
 extension String {
@@ -165,12 +166,12 @@ struct IPACollectionActions<Content: View>: View {
 
     var body: some View {
         Menu(content: content) {
+            let size = IPAStyle.tabCollectionButtonSize
+            let icon = IPACollectionControlIcon.plus.frame(width: size, height: size).contentShape(Circle())
             if #available(iOS 26.0, *) {
-                IPACollectionControlIcon(symbol: "plus").frame(width: 46, height: 46)
-                    .glassEffect(.regular, in: .circle)
+                icon.glassEffect(.regular, in: .circle)
             } else {
-                IPACollectionControlIcon(symbol: "plus").frame(width: 46, height: 46)
-                    .background(IPAStyle.card, in: Circle())
+                icon.background(IPAStyle.card, in: Circle())
             }
         }
         .menuOrder(.fixed)
@@ -587,8 +588,7 @@ struct IPAStoresView: View {
                         IPATabHeading("Stores")
                             .padding(.trailing, 54).frame(maxWidth: .infinity, alignment: .leading)
                             .id("stores-heading")
-                        IPACollectionSearchField(query: $query, presented: $searching, prompt: "Search Libraries")
-                            .padding(.horizontal, -8)
+                        IPACollectionSearchField(query: $query, presented: $searching, prompt: "Search Libraries", belowTabHeading: true)
                         if !failedSources.isEmpty {
                             Button { refreshDetails = true } label: {
                                 Label(failedSources.count == 1 ? "1 store needs attention" : "\(failedSources.count) stores need attention",
@@ -1001,9 +1001,8 @@ struct IPAProductView: View {
             .coordinateSpace(name: "productScroll")
             .ignoresSafeArea(.container, edges: hasHero ? .top : [])
             .navigationTitle("").navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.regularMaterial, for: .navigationBar)
             .toolbarBackground(compactHeader ? .visible : .hidden, for: .navigationBar)
-            .toolbarColorScheme(hasHero && !compactHeader ? .dark : nil, for: .navigationBar)
             .toolbar { productToolbar }
             .onAppear { IPAActivityHistory.shared.viewed(entry) }
             .task(id: app.bundleIdentifier) {
@@ -1068,8 +1067,8 @@ struct IPAProductView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 ShareLink(item: app.latestVersion?.downloadURL ?? variant.store.url) {
                     Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 19, weight: .medium)).frame(minWidth: 44, minHeight: 44)
-                }.tint(.primary).accessibilityLabel("Share app")
+                }
+                .tint(.primary).accessibilityLabel("Share app")
             }
         }
     }

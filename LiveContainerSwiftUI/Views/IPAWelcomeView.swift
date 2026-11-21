@@ -269,7 +269,7 @@ struct IPASigningHero: View {
                     Text(mode == "container" ? "Keep iPAStore Ready" : "Certificate Mode").ipaFont(.title2, weight: .bold)
                     if mode == "container", state.freeSetupComplete, let profile = renewal.profile {
                         Text("Expires \(profile.expiresAt.formatted(.relative(presentation: .named)))").ipaFont(.subheadline).foregroundStyle(.secondary)
-                    } else { Text(mode == "container" ? "Free way to sign." : "Your apps. On your iPhone.").ipaFont(.subheadline).foregroundStyle(.secondary) }
+                    } else { Text(mode == "container" ? "The free way to sign." : "Your apps. On your iPhone.").ipaFont(.subheadline).foregroundStyle(.secondary) }
                 }
             }
             HStack(spacing: 12) {

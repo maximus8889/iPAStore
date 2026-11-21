@@ -134,6 +134,7 @@ struct IPACollectionSearchField: View {
     @Binding var query: String
     @Binding var presented: Bool
     var prompt = "Search Apps"
+    var belowTabHeading = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var editing = false
 
@@ -143,12 +144,14 @@ struct IPACollectionSearchField: View {
                 HStack(spacing: 6) {
                     IPACatalogSearchField(text: $query, editing: $editing, prompt: prompt, autofocus: true)
                         .frame(height: 52)
-                    IPACloseSearchButton {
+                    IPACloseSearchButton(size: belowTabHeading ? IPAStyle.tabCollectionButtonSize : 44) {
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                         query = ""
                         presented = false
                     }
                 }
+                .padding(.leading, belowTabHeading ? -12 : 0)
+                .padding(.top, belowTabHeading ? 8 : 0)
                 .transition(reduceMotion ? .opacity : .offset(y: -5).combined(with: .opacity))
             }
         }.animation(IPAMotion.state(reduced: reduceMotion), value: presented)
@@ -256,11 +259,12 @@ struct IPAArrangeLibraries: View {
 
 struct IPACloseSearchButton: View {
     var label: LocalizedStringKey = "Close search"
+    var size: CGFloat = 44
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.primary)
-                .frame(width: 44, height: 44).background(IPAStyle.card, in: Circle())
+                .frame(width: size, height: size).background(IPAStyle.card, in: Circle())
         }.accessibilityLabel(label)
     }
 }

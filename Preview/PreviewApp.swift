@@ -52,10 +52,10 @@ struct PreviewAppsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
                     IPATabHeading("Apps")
                         .padding(.trailing, 54).frame(maxWidth: .infinity, alignment: .leading)
-                    IPACollectionSearchField(query: $query, presented: $searching).padding(.horizontal, -8)
+                    IPACollectionSearchField(query: $query, presented: $searching, belowTabHeading: true)
                 }.padding(.horizontal, 20).padding(.top, 8).frame(maxWidth: 760).frame(maxWidth: .infinity)
             }
             .overlay {
